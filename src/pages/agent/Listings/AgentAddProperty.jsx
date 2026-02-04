@@ -28,7 +28,9 @@ import {
   Navigation,
   Search,
   Crosshair,
-  AlertCircle
+  AlertCircle,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 
 const AgentAddProperty = () => {
@@ -36,6 +38,9 @@ const AgentAddProperty = () => {
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 5;
   const [showPreview, setShowPreview] = useState(false);
+  const [isMapExpanded, setIsMapExpanded] = useState(false);
+  const [locationName, setLocationName] = useState('');
+  const [isLoadingLocation, setIsLoadingLocation] = useState(false);
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markerRef = useRef(null);
@@ -107,22 +112,24 @@ const AgentAddProperty = () => {
     { id: 'cctv', label: 'CCTV', icon: Camera }
   ];
 
-  const popularLocations = [
-    { name: 'Bonanjo, Douala', lat: 4.0511, lng: 9.7579, city: 'Douala', neighborhood: 'Bonanjo' },
-    { name: 'Akwa, Douala', lat: 4.0611, lng: 9.7479, city: 'Douala', neighborhood: 'Akwa' },
-    { name: 'Bonapriso, Douala', lat: 4.0411, lng: 9.7779, city: 'Douala', neighborhood: 'Bonapriso' },
-    { name: 'Bonamoussadi, Douala', lat: 4.0711, lng: 9.7879, city: 'Douala', neighborhood: 'Bonamoussadi' },
-    { name: 'Bepanda, Douala', lat: 4.0811, lng: 9.7679, city: 'Douala', neighborhood: 'Bepanda' },
-    { name: 'Bastos, Yaoundé', lat: 3.8680, lng: 11.5221, city: 'Yaoundé', neighborhood: 'Bastos' },
-    { name: 'Nlongkak, Yaoundé', lat: 3.8380, lng: 11.5121, city: 'Yaoundé', neighborhood: 'Nlongkak' },
-  ];
-
   // Initialize map when on step 2
   useEffect(() => {
     if (currentStep === 2 && !mapInitialized) {
       initializeMap();
     }
   }, [currentStep]);
+
+  // Lock body scroll when map is expanded
+  useEffect(() => {
+    if (isMapExpanded) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isMapExpanded]);
 
   const initializeMap = () => {
     // Load Leaflet CSS
@@ -159,6 +166,11 @@ const AgentAddProperty = () => {
     window.L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; OpenStreetMap',
       maxZoom: 20,
+    }).addTo(map);
+
+    // Add zoom control
+    window.L.control.zoom({
+      position: 'topright'
     }).addTo(map);
 
     mapInstanceRef.current = map;
@@ -230,21 +242,54 @@ const AgentAddProperty = () => {
       if (errors.coordinates) {
         setErrors(prev => ({ ...prev, coordinates: '' }));
       }
+
+      // Reverse geocode to get location name
+      reverseGeocode(lat, lng);
     }
   };
 
-  const handleLocationSelect = (location) => {
-    setFormData(prev => ({
-      ...prev,
-      city: location.city,
-      neighborhood: location.neighborhood,
-      latitude: location.lat.toFixed(6),
-      longitude: location.lng.toFixed(6)
-    }));
+  const reverseGeocode = async (lat, lng) => {
+    setIsLoadingLocation(true);
+    setLocationName('Loading location...');
 
-    if (mapInstanceRef.current) {
-      mapInstanceRef.current.setView([location.lat, location.lng], 15);
-      setMapMarker(location.lat, location.lng, false);
+    try {
+      // Using Nominatim for reverse geocoding (free, no API key needed)
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
+      );
+      
+      const data = await response.json();
+      
+      if (data && data.address) {
+        const address = data.address;
+        const neighborhood = address.suburb || address.neighbourhood || address.quarter || '';
+        const city = address.city || address.town || address.village || '';
+        const region = address.state || address.region || '';
+        
+        // Build location name
+        const parts = [neighborhood, city, region].filter(Boolean);
+        const locationString = parts.join(', ') || 'Unknown Location';
+        
+        setLocationName(locationString);
+
+        // Auto-fill form fields if they're empty
+        if (!formData.neighborhood && neighborhood) {
+          handleInputChange('neighborhood', neighborhood);
+        }
+        if (!formData.city && city) {
+          handleInputChange('city', city);
+        }
+        if (!formData.region && region) {
+          handleInputChange('region', region);
+        }
+      } else {
+        setLocationName(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+      }
+    } catch (error) {
+      console.error('Geocoding error:', error);
+      setLocationName(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+    } finally {
+      setIsLoadingLocation(false);
     }
   };
 
@@ -253,22 +298,30 @@ const AgentAddProperty = () => {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
-          setFormData(prev => ({
-            ...prev,
-            latitude: latitude.toFixed(6),
-            longitude: longitude.toFixed(6)
-          }));
           
           if (mapInstanceRef.current) {
             mapInstanceRef.current.setView([latitude, longitude], 15);
-            setMapMarker(latitude, longitude, false);
+            setMapMarker(latitude, longitude, true);
           }
         },
         (error) => {
           alert('Unable to get your location. Please select manually on the map.');
         }
       );
+    } else {
+      alert('Geolocation is not supported by your browser.');
     }
+  };
+
+  const toggleMapExpansion = () => {
+    setIsMapExpanded(!isMapExpanded);
+    
+    // Give the DOM time to update before invalidating map size
+    setTimeout(() => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.invalidateSize();
+      }
+    }, 100);
   };
 
   const handleInputChange = (field, value) => {
@@ -623,29 +676,11 @@ const AgentAddProperty = () => {
           <div className="space-y-6">
             <div>
               <h2 className="text-2xl font-bold text-gray-900">Location Details</h2>
-              <p className="text-gray-600 mt-1">Select your property location</p>
+              <p className="text-gray-600 mt-1">Select your property location on the map</p>
             </div>
 
-            {/* Quick Location Selection */}
-            <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 md:p-6">
-              <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                <Crosshair className="w-5 h-5 text-amber-600" />
-                Quick Location Select
-              </h3>
-              
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-3 mb-4">
-                {popularLocations.map((location, index) => (
-                  <button
-                    key={index}
-                    type="button"
-                    onClick={() => handleLocationSelect(location)}
-                    className="px-3 py-2 md:px-4 md:py-2.5 bg-white hover:bg-amber-100 border-2 border-amber-200 hover:border-amber-400 rounded-lg text-sm font-medium text-gray-900 transition-all active:scale-95"
-                  >
-                    {location.neighborhood}
-                  </button>
-                ))}
-              </div>
-
+            {/* Use My Location Button */}
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4">
               <button
                 type="button"
                 onClick={handleUseMyLocation}
@@ -656,8 +691,85 @@ const AgentAddProperty = () => {
               </button>
             </div>
 
+            {/* Interactive Map */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <label className="block text-sm font-medium text-gray-900">
+                  <span className="flex items-center gap-2">
+                    <MapPin className="w-5 h-5 text-amber-600" />
+                    Click on Map to Pin Location *
+                  </span>
+                </label>
+                <button
+                  type="button"
+                  onClick={toggleMapExpansion}
+                  className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-semibold transition-colors"
+                >
+                  {isMapExpanded ? (
+                    <>
+                      <Minimize2 className="w-4 h-4" />
+                      <span className="hidden sm:inline">Exit Fullscreen</span>
+                    </>
+                  ) : (
+                    <>
+                      <Maximize2 className="w-4 h-4" />
+                      <span className="hidden sm:inline">Fullscreen</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              
+              <div className="bg-white border-2 border-gray-300 rounded-xl overflow-hidden">
+                {/* Map Instructions */}
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b-2 border-blue-200 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-blue-900">
+                      <p className="font-semibold mb-1">How to use:</p>
+                      <p>Click anywhere on the map to drop a pin at your property's exact location. The location name will appear automatically.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Map Container */}
+                <div className="relative">
+                  <div ref={mapRef} className="w-full h-80 md:h-96" />
+                  
+                  {/* Location Display */}
+                  {formData.latitude && formData.longitude && (
+                    <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur-sm rounded-lg p-4 shadow-lg border border-gray-200">
+                      <div className="flex items-start gap-3">
+                        <MapPin className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-gray-900 mb-1">Selected Location</div>
+                          {isLoadingLocation ? (
+                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                              Loading location details...
+                            </div>
+                          ) : (
+                            <div className="text-sm text-gray-700 break-words">{locationName}</div>
+                          )}
+                          <div className="text-xs text-gray-500 font-mono mt-1">
+                            {parseFloat(formData.latitude).toFixed(4)}, {parseFloat(formData.longitude).toFixed(4)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {errors.coordinates && (
+                <p className="text-red-500 text-sm mt-2 flex items-center gap-1">
+                  <AlertCircle className="w-4 h-4" />
+                  {errors.coordinates}
+                </p>
+              )}
+            </div>
+
             {/* Address Fields */}
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 gap-4 pt-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Street Address *
@@ -723,56 +835,6 @@ const AgentAddProperty = () => {
                   {errors.neighborhood && <p className="text-red-500 text-sm mt-1">{errors.neighborhood}</p>}
                 </div>
               </div>
-            </div>
-
-            {/* Interactive Map */}
-            <div>
-              <label className="block text-sm font-medium text-gray-900 mb-3">
-                <span className="flex items-center gap-2">
-                  <MapPin className="w-5 h-5 text-amber-600" />
-                  Pin Exact Location on Map *
-                </span>
-              </label>
-              
-              <div className="bg-white border-2 border-gray-300 rounded-xl overflow-hidden">
-                {/* Map Instructions */}
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b-2 border-blue-200 p-4">
-                  <div className="flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <div className="text-sm text-blue-900">
-                      <p className="font-semibold mb-1">How to use:</p>
-                      <p>Click anywhere on the map to drop a pin at your property's exact location.</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Map Container */}
-                <div className="relative">
-                  <div ref={mapRef} className="w-full h-64 md:h-96" />
-                  
-                  {/* Coordinates Display */}
-                  {formData.latitude && formData.longitude && (
-                    <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur-sm rounded-lg p-3 shadow-lg border border-gray-200">
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-2 text-sm">
-                          <MapPin className="w-4 h-4 text-green-600" />
-                          <span className="font-semibold text-gray-900">Location Selected</span>
-                        </div>
-                        <div className="text-xs text-gray-600 font-mono">
-                          {parseFloat(formData.latitude).toFixed(4)}, {parseFloat(formData.longitude).toFixed(4)}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              {errors.coordinates && (
-                <p className="text-red-500 text-sm mt-2 flex items-center gap-1">
-                  <AlertCircle className="w-4 h-4" />
-                  {errors.coordinates}
-                </p>
-              )}
             </div>
           </div>
         );
@@ -1081,6 +1143,57 @@ const AgentAddProperty = () => {
           isOpen={showPreview}
           onClose={() => setShowPreview(false)}
         />
+      )}
+
+      {/* Fullscreen Map Modal */}
+      {isMapExpanded && (
+        <div className="fixed inset-0 z-50 bg-black bg-opacity-90 flex flex-col">
+          {/* Header */}
+          <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <MapPin className="w-6 h-6 text-amber-600" />
+              <div>
+                <h3 className="font-bold text-gray-900">Select Property Location</h3>
+                <p className="text-sm text-gray-600">Click anywhere to drop a pin</p>
+              </div>
+            </div>
+            <button
+              onClick={toggleMapExpansion}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-semibold flex items-center gap-2"
+            >
+              <Minimize2 className="w-4 h-4" />
+              Exit Fullscreen
+            </button>
+          </div>
+
+          {/* Map */}
+          <div className="flex-1 relative">
+            <div ref={mapRef} className="w-full h-full" />
+            
+            {/* Location Display */}
+            {formData.latitude && formData.longitude && (
+              <div className="absolute bottom-6 left-6 right-6 md:left-auto md:right-6 md:w-96 bg-white/95 backdrop-blur-sm rounded-lg p-4 shadow-2xl border border-gray-200">
+                <div className="flex items-start gap-3">
+                  <MapPin className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-gray-900 mb-1">Selected Location</div>
+                    {isLoadingLocation ? (
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                        Loading location details...
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-700 break-words">{locationName}</div>
+                    )}
+                    <div className="text-xs text-gray-500 font-mono mt-1">
+                      {parseFloat(formData.latitude).toFixed(6)}, {parseFloat(formData.longitude).toFixed(6)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
