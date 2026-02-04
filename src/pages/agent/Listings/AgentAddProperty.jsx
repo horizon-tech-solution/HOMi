@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AgentNav from '../../../components/AgentNav';
-import PropertyDetails from '../../Properties/pageDetail/PropertDetails';
+import PropertyDetails from '../../main/pageDetail/PropertDetails';
 import { 
   ArrowLeft,
   ArrowRight,
