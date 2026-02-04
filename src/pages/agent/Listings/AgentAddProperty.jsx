@@ -1,9 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AgentNav from '../../../components/AgentNav';
-import Map from '../../../components/Map';
-import PropertyDetails from '../../main/pageDetail/PropertDetails';
-
+import PropertyDetails from '../../Properties/pageDetail/PropertDetails';
 import { 
   ArrowLeft,
   ArrowRight,
@@ -28,7 +26,9 @@ import {
   Upload,
   X,
   Navigation,
-  Search
+  Search,
+  Crosshair,
+  AlertCircle
 } from 'lucide-react';
 
 const AgentAddProperty = () => {
@@ -36,8 +36,10 @@ const AgentAddProperty = () => {
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 5;
   const [showPreview, setShowPreview] = useState(false);
-  const [locationSearchQuery, setLocationSearchQuery] = useState('');
-  const [mapCenter, setMapCenter] = useState({ lat: 4.0511, lng: 9.7679 }); // Douala default
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markerRef = useRef(null);
+  const [mapInitialized, setMapInitialized] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -45,7 +47,7 @@ const AgentAddProperty = () => {
     title: '',
     description: '',
     propertyType: '',
-    listingType: '', // sale or rent
+    listingType: '',
     price: '',
     bedrooms: '',
     bathrooms: '',
@@ -105,9 +107,172 @@ const AgentAddProperty = () => {
     { id: 'cctv', label: 'CCTV', icon: Camera }
   ];
 
+  const popularLocations = [
+    { name: 'Bonanjo, Douala', lat: 4.0511, lng: 9.7579, city: 'Douala', neighborhood: 'Bonanjo' },
+    { name: 'Akwa, Douala', lat: 4.0611, lng: 9.7479, city: 'Douala', neighborhood: 'Akwa' },
+    { name: 'Bonapriso, Douala', lat: 4.0411, lng: 9.7779, city: 'Douala', neighborhood: 'Bonapriso' },
+    { name: 'Bonamoussadi, Douala', lat: 4.0711, lng: 9.7879, city: 'Douala', neighborhood: 'Bonamoussadi' },
+    { name: 'Bepanda, Douala', lat: 4.0811, lng: 9.7679, city: 'Douala', neighborhood: 'Bepanda' },
+    { name: 'Bastos, Yaoundé', lat: 3.8680, lng: 11.5221, city: 'Yaoundé', neighborhood: 'Bastos' },
+    { name: 'Nlongkak, Yaoundé', lat: 3.8380, lng: 11.5121, city: 'Yaoundé', neighborhood: 'Nlongkak' },
+  ];
+
+  // Initialize map when on step 2
+  useEffect(() => {
+    if (currentStep === 2 && !mapInitialized) {
+      initializeMap();
+    }
+  }, [currentStep]);
+
+  const initializeMap = () => {
+    // Load Leaflet CSS
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link');
+      link.id = 'leaflet-css';
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
+
+    // Load Leaflet JS
+    if (!window.L) {
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      script.onload = () => createMap();
+      document.body.appendChild(script);
+    } else {
+      createMap();
+    }
+  };
+
+  const createMap = () => {
+    if (!mapRef.current || mapInstanceRef.current) return;
+
+    const initialLat = formData.latitude ? parseFloat(formData.latitude) : 4.0511;
+    const initialLng = formData.longitude ? parseFloat(formData.longitude) : 9.7679;
+
+    const map = window.L.map(mapRef.current, {
+      zoomControl: false,
+      scrollWheelZoom: true,
+    }).setView([initialLat, initialLng], 13);
+
+    window.L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap',
+      maxZoom: 20,
+    }).addTo(map);
+
+    mapInstanceRef.current = map;
+
+    // Add click handler
+    map.on('click', (e) => {
+      setMapMarker(e.latlng.lat, e.latlng.lng);
+    });
+
+    // If we already have coordinates, show marker
+    if (formData.latitude && formData.longitude) {
+      setMapMarker(parseFloat(formData.latitude), parseFloat(formData.longitude), false);
+    }
+
+    setMapInitialized(true);
+  };
+
+  const setMapMarker = (lat, lng, updateForm = true) => {
+    if (!mapInstanceRef.current) return;
+
+    // Remove existing marker
+    if (markerRef.current) {
+      markerRef.current.remove();
+    }
+
+    // Create custom pin icon
+    const pinIcon = window.L.divIcon({
+      html: `
+        <div style="position: relative;">
+          <div style="
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #D97706 0%, #B45309 100%);
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            border: 4px solid white;
+            box-shadow: 0 4px 12px rgba(217, 119, 6, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          ">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="white" style="transform: rotate(45deg);">
+              <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+            </svg>
+          </div>
+        </div>
+      `,
+      className: 'custom-pin-marker',
+      iconSize: [40, 40],
+      iconAnchor: [20, 40],
+    });
+
+    // Add new marker
+    const marker = window.L.marker([lat, lng], { icon: pinIcon }).addTo(mapInstanceRef.current);
+    markerRef.current = marker;
+
+    // Center map on marker
+    mapInstanceRef.current.setView([lat, lng], mapInstanceRef.current.getZoom());
+
+    // Update form data
+    if (updateForm) {
+      setFormData(prev => ({
+        ...prev,
+        latitude: lat.toFixed(6),
+        longitude: lng.toFixed(6)
+      }));
+      
+      // Clear coordinate error if it exists
+      if (errors.coordinates) {
+        setErrors(prev => ({ ...prev, coordinates: '' }));
+      }
+    }
+  };
+
+  const handleLocationSelect = (location) => {
+    setFormData(prev => ({
+      ...prev,
+      city: location.city,
+      neighborhood: location.neighborhood,
+      latitude: location.lat.toFixed(6),
+      longitude: location.lng.toFixed(6)
+    }));
+
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.setView([location.lat, location.lng], 15);
+      setMapMarker(location.lat, location.lng, false);
+    }
+  };
+
+  const handleUseMyLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          setFormData(prev => ({
+            ...prev,
+            latitude: latitude.toFixed(6),
+            longitude: longitude.toFixed(6)
+          }));
+          
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.setView([latitude, longitude], 15);
+            setMapMarker(latitude, longitude, false);
+          }
+        },
+        (error) => {
+          alert('Unable to get your location. Please select manually on the map.');
+        }
+      );
+    }
+  };
+
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    // Clear error for this field
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: '' }));
     }
@@ -141,60 +306,6 @@ const AgentAddProperty = () => {
       ...prev,
       photos: prev.photos.filter(photo => photo.id !== photoId)
     }));
-  };
-
-  const handleMapClick = (listing) => {
-    // When map is clicked, update coordinates
-    if (listing && listing.lat && listing.lng) {
-      setFormData(prev => ({
-        ...prev,
-        latitude: listing.lat.toString(),
-        longitude: listing.lng.toString()
-      }));
-    }
-  };
-
-  const handleLocationSearch = () => {
-    // Search for location and update map center
-    if (locationSearchQuery) {
-      // This is a simple example - you'd want to use a geocoding API
-      const locations = {
-        'douala': { lat: 4.0511, lng: 9.7679 },
-        'yaounde': { lat: 3.8480, lng: 11.5021 },
-        'bonanjo': { lat: 4.0511, lng: 9.7579 },
-        'akwa': { lat: 4.0611, lng: 9.7479 },
-        'bonapriso': { lat: 4.0411, lng: 9.7779 }
-      };
-
-      const searchLower = locationSearchQuery.toLowerCase();
-      const found = Object.keys(locations).find(key => searchLower.includes(key));
-      
-      if (found) {
-        setMapCenter(locations[found]);
-      }
-    }
-  };
-
-  const handleUseMyLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          setFormData(prev => ({
-            ...prev,
-            latitude: latitude.toString(),
-            longitude: longitude.toString()
-          }));
-          setMapCenter({ lat: latitude, lng: longitude });
-        },
-        (error) => {
-          console.error('Error getting location:', error);
-          alert('Unable to get your location. Please select manually on the map.');
-        }
-      );
-    } else {
-      alert('Geolocation is not supported by your browser.');
-    }
   };
 
   const validateStep = (step) => {
@@ -241,9 +352,7 @@ const AgentAddProperty = () => {
 
   const handleSubmit = async () => {
     if (validateStep(currentStep)) {
-      // Submit to API
       console.log('Submitting:', formData);
-      // After successful submission
       navigate('/agent/listings');
     }
   };
@@ -252,7 +361,6 @@ const AgentAddProperty = () => {
     setShowPreview(true);
   };
 
-  // Convert form data to format expected by PropertyDetails
   const getPreviewListing = () => {
     return {
       id: 'preview',
@@ -280,10 +388,11 @@ const AgentAddProperty = () => {
       case 1:
         return (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-gray-900">Basic Information</h2>
-            <p className="text-gray-600">Tell us about your property</p>
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Basic Information</h2>
+              <p className="text-gray-600 mt-1">Tell us about your property</p>
+            </div>
 
-            {/* Title */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Property Title *
@@ -300,7 +409,6 @@ const AgentAddProperty = () => {
               {errors.title && <p className="text-red-500 text-sm mt-1">{errors.title}</p>}
             </div>
 
-            {/* Description */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Description *
@@ -317,7 +425,6 @@ const AgentAddProperty = () => {
               {errors.description && <p className="text-red-500 text-sm mt-1">{errors.description}</p>}
             </div>
 
-            {/* Property Type & Listing Type */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -370,7 +477,6 @@ const AgentAddProperty = () => {
               </div>
             </div>
 
-            {/* Price */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Price (FCFA) *
@@ -390,8 +496,7 @@ const AgentAddProperty = () => {
               {errors.price && <p className="text-red-500 text-sm mt-1">{errors.price}</p>}
             </div>
 
-            {/* Bedrooms, Bathrooms, Area */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Bedrooms *
@@ -450,7 +555,6 @@ const AgentAddProperty = () => {
               </div>
             </div>
 
-            {/* Additional Fields */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -479,7 +583,6 @@ const AgentAddProperty = () => {
               </div>
             </div>
 
-            {/* Furnished & Pet Friendly */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -518,181 +621,158 @@ const AgentAddProperty = () => {
       case 2:
         return (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-gray-900">Location Details</h2>
-            <p className="text-gray-600">Pin the exact location of your property on the map</p>
-
-            {/* Address */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Street Address *
-              </label>
-              <input
-                type="text"
-                value={formData.address}
-                onChange={(e) => handleInputChange('address', e.target.value)}
-                placeholder="e.g., Rue 1.234, Bonamoussadi"
-                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent ${
-                  errors.address ? 'border-red-500' : 'border-gray-300'
-                }`}
-              />
-              {errors.address && <p className="text-red-500 text-sm mt-1">{errors.address}</p>}
+              <h2 className="text-2xl font-bold text-gray-900">Location Details</h2>
+              <p className="text-gray-600 mt-1">Select your property location</p>
             </div>
 
-            {/* City & Region */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  City *
-                </label>
-                <input
-                  type="text"
-                  value={formData.city}
-                  onChange={(e) => handleInputChange('city', e.target.value)}
-                  placeholder="e.g., Douala"
-                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent ${
-                    errors.city ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                />
-                {errors.city && <p className="text-red-500 text-sm mt-1">{errors.city}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Region *
-                </label>
-                <input
-                  type="text"
-                  value={formData.region}
-                  onChange={(e) => handleInputChange('region', e.target.value)}
-                  placeholder="e.g., Littoral"
-                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent ${
-                    errors.region ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                />
-                {errors.region && <p className="text-red-500 text-sm mt-1">{errors.region}</p>}
-              </div>
-            </div>
-
-            {/* Neighborhood */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Neighborhood *
-              </label>
-              <input
-                type="text"
-                value={formData.neighborhood}
-                onChange={(e) => handleInputChange('neighborhood', e.target.value)}
-                placeholder="e.g., Bonamoussadi"
-                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent ${
-                  errors.neighborhood ? 'border-red-500' : 'border-gray-300'
-                }`}
-              />
-              {errors.neighborhood && <p className="text-red-500 text-sm mt-1">{errors.neighborhood}</p>}
-            </div>
-
-            {/* Location Search */}
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            {/* Quick Location Selection */}
+            <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4 md:p-6">
               <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                <Search className="w-5 h-5 text-amber-600" />
-                Search Location
+                <Crosshair className="w-5 h-5 text-amber-600" />
+                Quick Location Select
               </h3>
-              <div className="flex gap-2">
+              
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-3 mb-4">
+                {popularLocations.map((location, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={() => handleLocationSelect(location)}
+                    className="px-3 py-2 md:px-4 md:py-2.5 bg-white hover:bg-amber-100 border-2 border-amber-200 hover:border-amber-400 rounded-lg text-sm font-medium text-gray-900 transition-all active:scale-95"
+                  >
+                    {location.neighborhood}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleUseMyLocation}
+                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
+              >
+                <Navigation className="w-5 h-5" />
+                Use My Current Location
+              </button>
+            </div>
+
+            {/* Address Fields */}
+            <div className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Street Address *
+                </label>
                 <input
                   type="text"
-                  value={locationSearchQuery}
-                  onChange={(e) => setLocationSearchQuery(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleLocationSearch()}
-                  placeholder="Search for a location (e.g., Bonanjo, Akwa)"
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  value={formData.address}
+                  onChange={(e) => handleInputChange('address', e.target.value)}
+                  placeholder="e.g., Rue 1.234, Bonamoussadi"
+                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent ${
+                    errors.address ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 />
-                <button
-                  type="button"
-                  onClick={handleLocationSearch}
-                  className="px-6 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-semibold transition-colors"
-                >
-                  Search
-                </button>
-                <button
-                  type="button"
-                  onClick={handleUseMyLocation}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
-                >
-                  <Navigation className="w-4 h-4" />
-                  My Location
-                </button>
+                {errors.address && <p className="text-red-500 text-sm mt-1">{errors.address}</p>}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    City *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.city}
+                    onChange={(e) => handleInputChange('city', e.target.value)}
+                    placeholder="e.g., Douala"
+                    className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent ${
+                      errors.city ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                  />
+                  {errors.city && <p className="text-red-500 text-sm mt-1">{errors.city}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Region *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.region}
+                    onChange={(e) => handleInputChange('region', e.target.value)}
+                    placeholder="e.g., Littoral"
+                    className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent ${
+                      errors.region ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                  />
+                  {errors.region && <p className="text-red-500 text-sm mt-1">{errors.region}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Neighborhood *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.neighborhood}
+                    onChange={(e) => handleInputChange('neighborhood', e.target.value)}
+                    placeholder="e.g., Bonamoussadi"
+                    className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent ${
+                      errors.neighborhood ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                  />
+                  {errors.neighborhood && <p className="text-red-500 text-sm mt-1">{errors.neighborhood}</p>}
+                </div>
               </div>
             </div>
 
             {/* Interactive Map */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Pin Location on Map *
+              <label className="block text-sm font-medium text-gray-900 mb-3">
+                <span className="flex items-center gap-2">
+                  <MapPin className="w-5 h-5 text-amber-600" />
+                  Pin Exact Location on Map *
+                </span>
               </label>
-              <div className="relative">
-                <div className="h-96 rounded-lg overflow-hidden border-2 border-gray-300">
-                  <Map
-                    listings={formData.latitude && formData.longitude ? [{
-                      id: 'temp',
-                      lat: parseFloat(formData.latitude),
-                      lng: parseFloat(formData.longitude),
-                      title: formData.title || 'Property Location',
-                      price: parseInt(formData.price) || 0,
-                      location: formData.neighborhood || 'Location'
-                    }] : []}
-                    center={mapCenter}
-                    zoom={14}
-                    onMarkerClick={handleMapClick}
-                    showControls={true}
-                  />
+              
+              <div className="bg-white border-2 border-gray-300 rounded-xl overflow-hidden">
+                {/* Map Instructions */}
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b-2 border-blue-200 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div className="text-sm text-blue-900">
+                      <p className="font-semibold mb-1">How to use:</p>
+                      <p>Click anywhere on the map to drop a pin at your property's exact location.</p>
+                    </div>
+                  </div>
                 </div>
-                <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-sm rounded-lg p-3 shadow-lg max-w-xs">
-                  <p className="text-sm font-semibold text-gray-900 mb-1">Click on the map to select location</p>
-                  <p className="text-xs text-gray-600">
-                    {formData.latitude && formData.longitude 
-                      ? `Selected: ${parseFloat(formData.latitude).toFixed(6)}, ${parseFloat(formData.longitude).toFixed(6)}`
-                      : 'No location selected yet'
-                    }
-                  </p>
+
+                {/* Map Container */}
+                <div className="relative">
+                  <div ref={mapRef} className="w-full h-64 md:h-96" />
+                  
+                  {/* Coordinates Display */}
+                  {formData.latitude && formData.longitude && (
+                    <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur-sm rounded-lg p-3 shadow-lg border border-gray-200">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-2 text-sm">
+                          <MapPin className="w-4 h-4 text-green-600" />
+                          <span className="font-semibold text-gray-900">Location Selected</span>
+                        </div>
+                        <div className="text-xs text-gray-600 font-mono">
+                          {parseFloat(formData.latitude).toFixed(4)}, {parseFloat(formData.longitude).toFixed(4)}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-              {errors.coordinates && <p className="text-red-500 text-sm mt-1">{errors.coordinates}</p>}
-            </div>
-
-            {/* Manual Coordinates (Optional) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Latitude
-                </label>
-                <input
-                  type="text"
-                  value={formData.latitude}
-                  onChange={(e) => handleInputChange('latitude', e.target.value)}
-                  placeholder="e.g., 4.0511"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-gray-50"
-                  readOnly
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Longitude
-                </label>
-                <input
-                  type="text"
-                  value={formData.longitude}
-                  onChange={(e) => handleInputChange('longitude', e.target.value)}
-                  placeholder="e.g., 9.7679"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-gray-50"
-                  readOnly
-                />
-              </div>
-            </div>
-
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm text-blue-800">
-                <strong>Tip:</strong> You can search for a location, use your current location, or click directly on the map to pin the exact location of your property.
-              </p>
+              
+              {errors.coordinates && (
+                <p className="text-red-500 text-sm mt-2 flex items-center gap-1">
+                  <AlertCircle className="w-4 h-4" />
+                  {errors.coordinates}
+                </p>
+              )}
             </div>
           </div>
         );
@@ -700,10 +780,12 @@ const AgentAddProperty = () => {
       case 3:
         return (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-gray-900">Property Amenities</h2>
-            <p className="text-gray-600">Select all amenities that apply</p>
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Property Amenities</h2>
+              <p className="text-gray-600 mt-1">Select all amenities that apply</p>
+            </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
               {amenitiesList.map((amenity) => {
                 const Icon = amenity.icon;
                 const isSelected = formData.amenities.includes(amenity.id);
@@ -713,23 +795,23 @@ const AgentAddProperty = () => {
                     key={amenity.id}
                     type="button"
                     onClick={() => handleAmenityToggle(amenity.id)}
-                    className={`p-4 border-2 rounded-lg transition-all ${
+                    className={`p-3 md:p-4 border-2 rounded-lg transition-all ${
                       isSelected
                         ? 'border-amber-600 bg-amber-50'
                         : 'border-gray-300 hover:border-gray-400'
                     }`}
                   >
-                    <Icon className={`w-8 h-8 mx-auto mb-2 ${
+                    <Icon className={`w-6 h-6 md:w-8 md:h-8 mx-auto mb-2 ${
                       isSelected ? 'text-amber-600' : 'text-gray-400'
                     }`} />
-                    <p className={`text-sm font-medium ${
+                    <p className={`text-xs md:text-sm font-medium ${
                       isSelected ? 'text-amber-600' : 'text-gray-700'
                     }`}>
                       {amenity.label}
                     </p>
                     {isSelected && (
                       <div className="mt-2">
-                        <Check className="w-5 h-5 text-amber-600 mx-auto" />
+                        <Check className="w-4 h-4 md:w-5 md:h-5 text-amber-600 mx-auto" />
                       </div>
                     )}
                   </button>
@@ -737,7 +819,7 @@ const AgentAddProperty = () => {
               })}
             </div>
 
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-6">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <p className="text-sm text-blue-800">
                 <strong>Tip:</strong> Properties with more amenities tend to attract more interested buyers and renters.
               </p>
@@ -748,11 +830,12 @@ const AgentAddProperty = () => {
       case 4:
         return (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-gray-900">Property Photos</h2>
-            <p className="text-gray-600">Add photos to showcase your property (minimum 1 photo required)</p>
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Property Photos</h2>
+              <p className="text-gray-600 mt-1">Add photos to showcase your property (minimum 1 photo required)</p>
+            </div>
 
-            {/* Upload Area */}
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-amber-500 transition-colors">
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 md:p-8 text-center hover:border-amber-500 transition-colors">
               <input
                 type="file"
                 multiple
@@ -762,8 +845,8 @@ const AgentAddProperty = () => {
                 id="photo-upload"
               />
               <label htmlFor="photo-upload" className="cursor-pointer">
-                <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-lg font-medium text-gray-700 mb-2">
+                <Upload className="w-10 h-10 md:w-12 md:h-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-base md:text-lg font-medium text-gray-700 mb-2">
                   Click to upload photos
                 </p>
                 <p className="text-sm text-gray-500">
@@ -774,26 +857,26 @@ const AgentAddProperty = () => {
 
             {errors.photos && <p className="text-red-500 text-sm">{errors.photos}</p>}
 
-            {/* Photo Grid */}
             {formData.photos.length > 0 && (
               <div>
                 <h3 className="font-semibold text-gray-900 mb-4">
                   Uploaded Photos ({formData.photos.length})
                 </h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
                   {formData.photos.map((photo, index) => (
                     <div key={photo.id} className="relative group">
                       <img
                         src={photo.preview}
                         alt={`Upload ${index + 1}`}
-                        className="w-full h-40 object-cover rounded-lg"
+                        className="w-full h-32 md:h-40 object-cover rounded-lg"
                       />
                       {index === 0 && (
                         <div className="absolute top-2 left-2 bg-amber-600 text-white text-xs px-2 py-1 rounded">
-                          Cover Photo
+                          Cover
                         </div>
                       )}
                       <button
+                        type="button"
                         onClick={() => handleRemovePhoto(photo.id)}
                         className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                       >
@@ -813,59 +896,66 @@ const AgentAddProperty = () => {
       case 5:
         return (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-gray-900">Review Your Listing</h2>
-            <p className="text-gray-600">Preview how your property will appear to potential buyers/renters</p>
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Review Your Listing</h2>
+              <p className="text-gray-600 mt-1">Preview how your property will appear to potential buyers/renters</p>
+            </div>
 
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm text-blue-800 mb-3">
-                <strong>Preview:</strong> Click the button below to see how your listing will look to users.
-              </p>
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 rounded-xl p-4 md:p-6">
+              <div className="flex items-start gap-3 mb-4">
+                <Eye className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-gray-900 mb-1">Preview Your Listing</p>
+                  <p className="text-sm text-blue-800">
+                    Click the button below to see exactly how your listing will look to users
+                  </p>
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={handlePreview}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
+                className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
               >
                 <Eye className="w-5 h-5" />
                 Preview Listing
               </button>
             </div>
 
-            {/* Quick Summary */}
-            <div className="bg-white border border-gray-200 rounded-lg p-6">
+            <div className="bg-white border border-gray-200 rounded-xl p-4 md:p-6">
               <h3 className="text-xl font-bold text-gray-900 mb-4">Listing Summary</h3>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-gray-600 font-medium">Title:</span>
-                  <p className="text-gray-900 mt-1">{formData.title || 'Not set'}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <span className="text-gray-600 font-medium block mb-1">Title:</span>
+                  <p className="text-gray-900">{formData.title || 'Not set'}</p>
                 </div>
-                <div>
-                  <span className="text-gray-600 font-medium">Price:</span>
-                  <p className="text-gray-900 mt-1">{formData.price ? `${parseInt(formData.price).toLocaleString()} FCFA` : 'Not set'}</p>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <span className="text-gray-600 font-medium block mb-1">Price:</span>
+                  <p className="text-gray-900">{formData.price ? `${parseInt(formData.price).toLocaleString()} FCFA` : 'Not set'}</p>
                 </div>
-                <div>
-                  <span className="text-gray-600 font-medium">Location:</span>
-                  <p className="text-gray-900 mt-1">{formData.neighborhood}, {formData.city}</p>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <span className="text-gray-600 font-medium block mb-1">Location:</span>
+                  <p className="text-gray-900">{formData.neighborhood}, {formData.city}</p>
                 </div>
-                <div>
-                  <span className="text-gray-600 font-medium">Property Type:</span>
-                  <p className="text-gray-900 mt-1 capitalize">{formData.propertyType || 'Not set'}</p>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <span className="text-gray-600 font-medium block mb-1">Property Type:</span>
+                  <p className="text-gray-900 capitalize">{formData.propertyType || 'Not set'}</p>
                 </div>
-                <div>
-                  <span className="text-gray-600 font-medium">Bedrooms / Bathrooms:</span>
-                  <p className="text-gray-900 mt-1">{formData.bedrooms} BD • {formData.bathrooms} BA</p>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <span className="text-gray-600 font-medium block mb-1">Bedrooms / Bathrooms:</span>
+                  <p className="text-gray-900">{formData.bedrooms} BD • {formData.bathrooms} BA</p>
                 </div>
-                <div>
-                  <span className="text-gray-600 font-medium">Area:</span>
-                  <p className="text-gray-900 mt-1">{formData.area} m²</p>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <span className="text-gray-600 font-medium block mb-1">Area:</span>
+                  <p className="text-gray-900">{formData.area} m²</p>
                 </div>
-                <div>
-                  <span className="text-gray-600 font-medium">Photos:</span>
-                  <p className="text-gray-900 mt-1">{formData.photos.length} uploaded</p>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <span className="text-gray-600 font-medium block mb-1">Photos:</span>
+                  <p className="text-gray-900">{formData.photos.length} uploaded</p>
                 </div>
-                <div>
-                  <span className="text-gray-600 font-medium">Amenities:</span>
-                  <p className="text-gray-900 mt-1">{formData.amenities.length} selected</p>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <span className="text-gray-600 font-medium block mb-1">Amenities:</span>
+                  <p className="text-gray-900">{formData.amenities.length} selected</p>
                 </div>
               </div>
             </div>
@@ -887,24 +977,24 @@ const AgentAddProperty = () => {
     <div className="min-h-screen bg-gray-50">
       <AgentNav unreadLeads={2} unreadNotifications={5} />
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-8">
         
         {/* Header */}
-        <div className="mb-8">
+        <div className="mb-6 md:mb-8">
           <button
             onClick={() => navigate('/agent/listings')}
             className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
           >
             <ArrowLeft className="w-5 h-5" />
-            Back to Listings
+            <span className="text-sm md:text-base">Back to Listings</span>
           </button>
-          <h1 className="text-3xl font-bold text-gray-900">Add New Property</h1>
-          <p className="text-gray-600 mt-1">Fill in the details to list your property</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Add New Property</h1>
+          <p className="text-sm md:text-base text-gray-600 mt-1">Fill in the details to list your property</p>
         </div>
 
         {/* Progress Steps */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
+        <div className="mb-6 md:mb-8 overflow-x-auto">
+          <div className="flex items-center justify-between min-w-max md:min-w-0">
             {steps.map((step, index) => {
               const Icon = step.icon;
               const isActive = currentStep === step.number;
@@ -913,7 +1003,7 @@ const AgentAddProperty = () => {
               return (
                 <div key={step.number} className="flex items-center flex-1">
                   <div className="flex flex-col items-center flex-1">
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center border-2 transition-colors ${
+                    <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center border-2 transition-colors ${
                       isCompleted
                         ? 'bg-green-500 border-green-500'
                         : isActive
@@ -921,12 +1011,12 @@ const AgentAddProperty = () => {
                         : 'bg-white border-gray-300'
                     }`}>
                       {isCompleted ? (
-                        <Check className="w-6 h-6 text-white" />
+                        <Check className="w-5 h-5 md:w-6 md:h-6 text-white" />
                       ) : (
-                        <Icon className={`w-6 h-6 ${isActive ? 'text-white' : 'text-gray-400'}`} />
+                        <Icon className={`w-5 h-5 md:w-6 md:h-6 ${isActive ? 'text-white' : 'text-gray-400'}`} />
                       )}
                     </div>
-                    <span className={`text-xs mt-2 font-medium hidden sm:block ${
+                    <span className={`text-xs mt-2 font-medium text-center ${
                       isActive ? 'text-amber-600' : 'text-gray-500'
                     }`}>
                       {step.title}
@@ -944,37 +1034,38 @@ const AgentAddProperty = () => {
         </div>
 
         {/* Form Content */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 md:p-8 mb-6">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 md:p-8 mb-6">
           {renderStepContent()}
         </div>
 
         {/* Navigation Buttons */}
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center gap-4">
           <button
             onClick={handlePrevious}
             disabled={currentStep === 1}
-            className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-colors ${
+            className={`flex items-center gap-2 px-4 md:px-6 py-3 rounded-lg font-semibold transition-colors ${
               currentStep === 1
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 : 'bg-white border-2 border-gray-300 text-gray-700 hover:border-gray-400'
             }`}
           >
             <ArrowLeft className="w-5 h-5" />
-            Previous
+            <span className="hidden sm:inline">Previous</span>
           </button>
 
           {currentStep < totalSteps ? (
             <button
               onClick={handleNext}
-              className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
+              className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 md:px-6 py-3 rounded-lg font-semibold transition-colors"
             >
-              Next
+              <span className="hidden sm:inline">Next</span>
+              <span className="sm:hidden">Next</span>
               <ArrowRight className="w-5 h-5" />
             </button>
           ) : (
             <button
               onClick={handleSubmit}
-              className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
+              className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 md:px-6 py-3 rounded-lg font-semibold transition-colors"
             >
               <Check className="w-5 h-5" />
               Submit Listing
