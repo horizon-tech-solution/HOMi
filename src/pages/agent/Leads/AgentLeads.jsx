@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import AgentNav from '../../../components/AgentNav';
+import LeadConversation from './LeadConversation';
 import { 
   Search,
   Filter,
@@ -26,11 +27,13 @@ import {
 
 const AgentLeads = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedProperty, setSelectedProperty] = useState('all');
-  const [selectedLead, setSelectedLead] = useState(null);
-  const [showConversation, setShowConversation] = useState(false);
+
+  // Get lead ID from URL
+  const conversationLeadId = searchParams.get('conversation');
 
   // Mock data - replace with actual API calls
   const leads = [
@@ -180,6 +183,9 @@ const AgentLeads = () => {
     return matchesSearch && matchesStatus && matchesProperty;
   });
 
+  // Get selected lead for conversation
+  const selectedLead = conversationLeadId ? leads.find(l => l.id.toString() === conversationLeadId) : null;
+
   const getStatusBadge = (status) => {
     const badges = {
       'new': { bg: 'bg-blue-100', text: 'text-blue-700', label: 'New' },
@@ -202,8 +208,13 @@ const AgentLeads = () => {
   };
 
   const handleLeadClick = (lead) => {
-    setSelectedLead(lead);
-    setShowConversation(true);
+    // Update URL with conversation parameter
+    setSearchParams({ conversation: lead.id.toString() });
+  };
+
+  const handleCloseConversation = () => {
+    // Remove conversation parameter from URL
+    setSearchParams({});
   };
 
   const handleUpdateStatus = (leadId, newStatus) => {
@@ -493,67 +504,13 @@ const AgentLeads = () => {
         )}
       </div>
 
-      {/* Conversation Modal - Simple version, you can create a separate component */}
-      {showConversation && selectedLead && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-hidden">
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <img 
-                  src={selectedLead.avatar} 
-                  alt={selectedLead.name}
-                  className="w-10 h-10 rounded-full"
-                />
-                <div>
-                  <h3 className="font-semibold text-gray-900">{selectedLead.name}</h3>
-                  <p className="text-sm text-gray-600">{selectedLead.property.title}</p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setShowConversation(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            
-            <div className="p-6 overflow-y-auto max-h-96">
-              <div className="space-y-4">
-                <div className="flex gap-3">
-                  <img 
-                    src={selectedLead.avatar} 
-                    alt={selectedLead.name}
-                    className="w-8 h-8 rounded-full"
-                  />
-                  <div className="flex-1">
-                    <div className="bg-gray-100 rounded-lg p-3">
-                      <p className="text-sm text-gray-900">{selectedLead.message}</p>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">{selectedLead.timestamp}</p>
-                  </div>
-                </div>
-                
-                {/* This would be dynamic conversation history */}
-                <p className="text-center text-sm text-gray-500 py-4">
-                  Full conversation feature coming soon
-                </p>
-              </div>
-            </div>
-            
-            <div className="p-6 border-t border-gray-200">
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  placeholder="Type your message..."
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                />
-                <button className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-2 rounded-lg font-semibold">
-                  Send
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* Conversation Modal */}
+      {selectedLead && (
+        <LeadConversation 
+          lead={selectedLead}
+          isOpen={!!conversationLeadId}
+          onClose={handleCloseConversation}
+        />
       )}
     </div>
   );

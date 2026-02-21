@@ -143,10 +143,10 @@ const Footer = () => {
       {/* Building Illustration Image */}
       <div className="relative w-full overflow-hidden">
         <img 
-          src="/footer-art.svg" 
+          src="/footer-art.png" 
           alt="City buildings illustration" 
           className="w-full h-auto object-cover object-center"
-          style={{ maxHeight: '200px' }}
+          style={{ maxHeight: 'auto' }}
         />
       </div>
     </footer>

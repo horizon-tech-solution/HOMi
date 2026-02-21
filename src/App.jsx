@@ -27,15 +27,26 @@ import AgentSettings from './pages/agent/AgentSettings';
 import AgentNotifications from './pages/agent/AgentNotifications';
 
 
+import AdminDashboard from './pages/admin/AdminDashboard';
+import AgentVerification from './pages/admin/AgentVerification';
+import ReportsAndFlags from './pages/admin/ReportsAndFlags';
+import AdminSettings from './pages/admin/AdminSettings';
+import UserManagement from './pages/admin/UserManagement';
+import ListingsApproval from './pages/admin/ListingsApproval';
+import ActivityLog from './pages/admin/ActivityLogs';
+import Analytics from './pages/admin/Analytics';
+
+
 
 import { User } from 'lucide-react';
+
 
 // Layout wrapper component
 function Layout({ children }) {
   const location = useLocation();
   
   // Pages where Header and Footer should NOT appear
-  const noLayoutPages = ['/user/auth', '/user/pro-account', '/user/become-agent'];
+  const noLayoutPages = ['/user/auth', '/user/pro-account', '/user/become-agent', '/admin', '/admin/agents', '/admin/listings', '/admin/users', '/admin/reports', '/admin/settings', '/admin/activity', '/admin/analytics'];
   const hideLayout = noLayoutPages.includes(location.pathname);
   
   // Pages where Footer should NOT appear (but Header should)
@@ -87,8 +98,16 @@ function App() {
           <Route path="/agent/settings" element={<AgentSettings />} />
           <Route path="/agent/notifications" element={<AgentNotifications />} />
 
+          {/* Admin */}
 
-
+          <Route path="/admin" element={<AdminDashboard />} />
+          <Route path="/admin/agents" element={<AgentVerification />} />
+          <Route path="/admin/users" element={<UserManagement />} />
+          <Route path="/admin/reports" element={<ReportsAndFlags />} />
+          <Route path="/admin/listings" element={<ListingsApproval />} />
+          <Route path="/admin/settings" element={<AdminSettings />} />
+          <Route path="/admin/activity" element={<ActivityLog />} />
+          <Route path="/admin/analytics" element={<Analytics />} />
 
           
           {/* 
@@ -103,15 +122,7 @@ function App() {
 
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
-
           
-
-          <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="/admin/verify-agents" element={<VerifyAgents />} />
-          <Route path="/admin/review-listings" element={<ReviewListings />} />
-          <Route path="/admin/reports" element={<ManageReports />} />
-          <Route path="/admin/settings" element={<SystemSettings />} />
-
           <Route path="/500" element={<ServerError />} />
           <Route path="/403" element={<AccessDenied />} />
           <Route path="*" element={<NotFound />} />
