@@ -26,7 +26,6 @@ import AgentProfile from './pages/agent/AgentProfile';
 import AgentSettings from './pages/agent/AgentSettings';
 import AgentNotifications from './pages/agent/AgentNotifications';
 
-
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AgentVerification from './pages/admin/AgentVerification';
 import ReportsAndFlags from './pages/admin/ReportsAndFlags';
@@ -36,35 +35,54 @@ import ListingsApproval from './pages/admin/ListingsApproval';
 import ActivityLog from './pages/admin/ActivityLogs';
 import Analytics from './pages/admin/Analytics';
 
+import NotFound from './pages/error/NotFound';
 
 
-import { User } from 'lucide-react';
+const knownRoutes = [
+  '/', '/properties', '/find-agent', '/sell',
+  '/user/auth', '/user/pro-account', '/user/become-agent',
+  '/user/settings', '/user/favorites', '/user/history',
+  '/user/notifications', '/user/sell/add-property', '/user/home',
+  '/agent/home', '/agent/listings', '/agent/add-property',
+  '/agent/leads', '/agent/profile', '/agent/settings', '/agent/notifications',
+  '/admin', '/admin/agents', '/admin/listings', '/admin/users',
+  '/admin/reports', '/admin/settings', '/admin/activity', '/admin/analytics',
+];
+
+const noLayoutPages = [
+  '/user/auth', '/user/pro-account', '/user/become-agent',
+  '/admin', '/admin/agents', '/admin/listings', '/admin/users',
+  '/admin/reports', '/admin/settings', '/admin/activity', '/admin/analytics',
+];
+
+const noFooterPages = [
+  '/properties', '/user/settings', '/user/favorites', '/user/history',
+  '/user/notifications', '/user/sell/add-property', '/user/home',
+  '/agent/home', '/agent/listings', '/agent/add-property',
+  '/agent/leads', '/agent/profile', '/agent/settings', '/agent/notifications',
+];
 
 
-// Layout wrapper component
 function Layout({ children }) {
   const location = useLocation();
-  
-  // Pages where Header and Footer should NOT appear
-  const noLayoutPages = ['/user/auth', '/user/pro-account', '/user/become-agent', '/admin', '/admin/agents', '/admin/listings', '/admin/users', '/admin/reports', '/admin/settings', '/admin/activity', '/admin/analytics'];
-  const hideLayout = noLayoutPages.includes(location.pathname);
-  
-  // Pages where Footer should NOT appear (but Header should)
-  const noFooterPages = ['/properties', '/user/settings', '/user/favorites', '/user/history', '/user/notifications','/user/sell/add-property','/user/home','/agent/home','/agent/listings','/agent/add-property','/agent/leads','/agent/profile', '/agent/settings', '/agent/notifications'];
+
+  const is404 = !knownRoutes.includes(location.pathname);
+  const hideLayout = noLayoutPages.includes(location.pathname) || is404;
   const hideFooter = noFooterPages.includes(location.pathname) || hideLayout;
 
   return (
     <div className="flex flex-col min-h-screen">
       {!hideLayout && <Header />}
-      
+
       <main className={hideLayout ? '' : 'flex-grow'}>
         {children}
       </main>
-      
+
       {!hideFooter && <Footer />}
     </div>
   );
 }
+
 
 function App() {
   return (
@@ -77,8 +95,7 @@ function App() {
           <Route path="/find-agent" element={<FindAgent />} />
           <Route path="/sell" element={<Sell />} />
 
-          {/* users  */}
-
+          {/* Users */}
           <Route path="/user/auth" element={<Auth />} />
           <Route path="/user/become-agent" element={<BecomeAgent />} />
           <Route path="/user/pro-account" element={<ProAccount />} />
@@ -99,7 +116,6 @@ function App() {
           <Route path="/agent/notifications" element={<AgentNotifications />} />
 
           {/* Admin */}
-
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/admin/agents" element={<AgentVerification />} />
           <Route path="/admin/users" element={<UserManagement />} />
@@ -109,24 +125,8 @@ function App() {
           <Route path="/admin/activity" element={<ActivityLog />} />
           <Route path="/admin/analytics" element={<Analytics />} />
 
-          
-          {/* 
-          
-          <Route path="/about" element={<AboutUs />} />
-          <Route path="/how-it-works" element={<HowItWorks />} />
-          <Route path="/pricing" element={<Pricing />} />
-          <Route path="/faq" element={<FAQ />} />
-          <Route path="/contact" element={<Contact />} />
-          <Route path="/terms" element={<Terms />} />
-          <Route path="/privacy" element={<Privacy />} />
-
-          <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
-          
-          <Route path="/500" element={<ServerError />} />
-          <Route path="/403" element={<AccessDenied />} />
+          {/* 404 Catch-all */}
           <Route path="*" element={<NotFound />} />
-          */}
         </Routes>
       </Layout>
     </BrowserRouter>

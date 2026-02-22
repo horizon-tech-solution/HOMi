@@ -1,69 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Search, CheckCircle, XCircle, AlertTriangle, X, ZoomIn,
   Phone, Mail, MapPin, FileText, Download,
-  Shield, Ban, RotateCcw, User,
-  Star, Send, ExternalLink, Info, MessageSquare, Flag
+  Shield, Ban, RotateCcw, User, Send, Info, MessageSquare, Flag, Loader2
 } from 'lucide-react';
 import AdminNav from '../../components/AdminNav';
-
-const AGENTS = [
-  {
-    id: 'a_001', status: 'pending', name: 'Samuel Ekwueme', email: 'samuel.e@camereal.cm', phone: '+237 699 123 456',
-    region: 'Douala', city: 'Bonanjo', agencyName: 'Ekwueme Real Estate', agencyType: 'agency',
-    licenseNumber: 'CMR-RE-2024-1082', yearsExperience: 4, submittedAt: '2024-12-18T07:00:00',
-    bio: 'Real estate professional with 4 years of experience in the Douala market, specializing in residential and commercial properties.',
-    documents: [
-      { id: 'd1', name: 'National ID (Front)', type: 'image', url: 'https://images.unsplash.com/photo-1533279443086-d1c19a186416?w=600', status: 'pending' },
-      { id: 'd2', name: 'National ID (Back)', type: 'image', url: 'https://images.unsplash.com/photo-1504198266287-1659872e6590?w=600', status: 'pending' },
-      { id: 'd3', name: 'RE License', type: 'image', url: 'https://images.unsplash.com/photo-1572021335469-31706a17aaef?w=600', status: 'pending' },
-      { id: 'd4', name: 'Agency Registration', type: 'pdf', url: '#', status: 'pending' },
-      { id: 'd5', name: 'Passport Photo', type: 'image', url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300', status: 'pending' },
-    ],
-    stats: { listings: 0, reviews: 0, rating: null }, reports: 0, adminNotes: '', rejectionReason: '',
-  },
-  {
-    id: 'a_002', status: 'pending', name: 'Fatima Al-Rashid', email: 'fatima.ar@proptech.cm', phone: '+237 677 890 012',
-    region: 'Yaoundé', city: 'Bastos', agencyName: 'Al-Rashid Properties', agencyType: 'agency',
-    licenseNumber: 'CMR-RE-2024-1091', yearsExperience: 7, submittedAt: '2024-12-17T14:00:00',
-    bio: '7 years in Yaoundé real estate, focused on luxury and expat-oriented properties.',
-    documents: [
-      { id: 'd1', name: 'National ID (Front)', type: 'image', url: 'https://images.unsplash.com/photo-1461800919507-79b16743b257?w=600', status: 'pending' },
-      { id: 'd2', name: 'National ID (Back)', type: 'image', url: 'https://images.unsplash.com/photo-1504198266287-1659872e6590?w=600', status: 'pending' },
-      { id: 'd3', name: 'RE License', type: 'image', url: 'https://images.unsplash.com/photo-1563013544-824ae1b704d3?w=600', status: 'pending' },
-      { id: 'd5', name: 'Passport Photo', type: 'image', url: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=300', status: 'pending' },
-    ],
-    stats: { listings: 0, reviews: 0, rating: null }, reports: 0, adminNotes: 'Agency proof not submitted. Need to request this before approval.', rejectionReason: '',
-  },
-  {
-    id: 'a_003', status: 'verified', name: 'Jean-Paul Mbarga', email: 'jp.mbarga@camereal.cm', phone: '+237 655 234 567',
-    region: 'Douala', city: 'Bonanjo', agencyName: 'CameReal Group', agencyType: 'agency',
-    licenseNumber: 'CMR-RE-2023-0891', yearsExperience: 9, submittedAt: '2023-10-15T09:00:00', verifiedAt: '2023-10-16T11:00:00',
-    bio: '9 years of experience across Douala. CameReal Group is one of the most established agencies in Littoral.',
-    documents: [
-      { id: 'd1', name: 'National ID (Front)', type: 'image', url: 'https://images.unsplash.com/photo-1523824921871-d6f1a15151f1?w=600', status: 'verified' },
-      { id: 'd3', name: 'RE License', type: 'image', url: 'https://images.unsplash.com/photo-1572021335469-31706a17aaef?w=600', status: 'verified' },
-      { id: 'd5', name: 'Passport Photo', type: 'image', url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300', status: 'verified' },
-    ],
-    stats: { listings: 24, reviews: 41, rating: 4.8 }, reports: 0, adminNotes: '', rejectionReason: '',
-  },
-  {
-    id: 'a_004', status: 'rejected', name: 'Roger Akono', email: 'r.akono@mail.cm', phone: '+237 677 456 789',
-    region: 'Bafoussam', city: 'Bafoussam Centre', agencyName: 'Solo Agent', agencyType: 'individual',
-    licenseNumber: 'UNKNOWN-0000', yearsExperience: 1, submittedAt: '2024-12-14T10:00:00', bio: 'New to real estate, eager to help buyers and sellers.',
-    documents: [{ id: 'd1', name: 'National ID (Front)', type: 'image', url: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=600', status: 'pending' }],
-    stats: { listings: 0, reviews: 0, rating: null }, reports: 0, adminNotes: '',
-    rejectionReason: 'License number CMR-RE format is invalid. National ID only — missing license and passport photo. Please reapply with full documentation.',
-  },
-  {
-    id: 'a_005', status: 'suspended', name: 'Marcus Njoume', email: 'marcus.nj@yahoo.com', phone: '+237 699 000 001',
-    region: 'Douala', city: 'Akwa', agencyName: 'Shady Deals Ltd', agencyType: 'agency',
-    licenseNumber: 'FAKE-0000', yearsExperience: 2, submittedAt: '2024-10-01T08:00:00', bio: 'Fast deals, no problem.',
-    documents: [{ id: 'd1', name: 'National ID (Front)', type: 'image', url: 'https://images.unsplash.com/photo-1500048993953-d23a436266cf?w=600', status: 'pending' }],
-    stats: { listings: 5, reviews: 2, rating: 1.2 }, reports: 8, adminNotes: 'Multiple user reports. Fake listings confirmed. License invalid.',
-    rejectionReason: '', suspendedReason: 'Verified fraud — fake listings and financial scams. Account suspended.',
-  },
-];
+import {
+  fetchAgents, verifyAgent, rejectAgent,
+  suspendAgent, reinstateAgent, updateDocumentStatus,
+} from '../../api/admin/agent';
 
 const STATUS_CFG = {
   pending:   { label: 'Pending Review', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
@@ -73,6 +18,15 @@ const STATUS_CFG = {
 };
 
 const TABS = ['All', 'Pending', 'Verified', 'Rejected', 'Suspended'];
+
+function useDebounce(value, delay = 350) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
 
 function DocViewer({ doc, onClose }) {
   return (
@@ -103,9 +57,9 @@ function DocViewer({ doc, onClose }) {
 }
 
 function AgentDetail({ agent: initialAgent, onClose, onVerify, onReject, onSuspend, onReinstate }) {
-  const [agent, setAgent] = useState(initialAgent);
+  const [agent, setAgent]         = useState(initialAgent);
   const [viewingDoc, setViewingDoc] = useState(null);
-  const [tab, setTab] = useState('profile');
+  const [tab, setTab]             = useState('profile');
   const [rejectText, setRejectText] = useState('');
   const [suspendText, setSuspendText] = useState('');
   const [showReject, setShowReject] = useState(false);
@@ -113,13 +67,19 @@ function AgentDetail({ agent: initialAgent, onClose, onVerify, onReject, onSuspe
   const [adminNote, setAdminNote] = useState(agent.adminNotes);
 
   const st = STATUS_CFG[agent.status];
-  const isPending = agent.status === 'pending';
-  const isVerified = agent.status === 'verified';
+  const isPending   = agent.status === 'pending';
+  const isVerified  = agent.status === 'verified';
   const isSuspended = agent.status === 'suspended';
 
-  const setDocStatus = (docId, status) => {
-    setAgent(a => ({ ...a, documents: a.documents.map(d => d.id === docId ? { ...d, status } : d) }));
+  const setDocStatus = async (docId, status) => {
+    try {
+      await updateDocumentStatus(agent.id, docId, status);
+      setAgent(a => ({ ...a, documents: a.documents.map(d => d.id === docId ? { ...d, status } : d) }));
+    } catch (err) {
+      alert('Failed to update document: ' + err.message);
+    }
   };
+
   const verifiedDocCount = agent.documents.filter(d => d.status === 'verified').length;
 
   return (
@@ -151,7 +111,11 @@ function AgentDetail({ agent: initialAgent, onClose, onVerify, onReject, onSuspe
               <button key={t} onClick={() => setTab(t)}
                 className={`py-3 mr-4 sm:mr-5 text-xs font-semibold border-b-2 transition-colors capitalize whitespace-nowrap flex-shrink-0 ${tab === t ? 'border-zinc-900 text-zinc-900' : 'border-transparent text-zinc-400 hover:text-zinc-600'}`}>
                 {t}
-                {t === 'documents' && <span className={`ml-1.5 text-xs ${verifiedDocCount === agent.documents.length && agent.documents.length > 0 ? 'text-emerald-500' : 'text-zinc-300'}`}>{verifiedDocCount}/{agent.documents.length}</span>}
+                {t === 'documents' && (
+                  <span className={`ml-1.5 text-xs ${verifiedDocCount === agent.documents.length && agent.documents.length > 0 ? 'text-emerald-500' : 'text-zinc-300'}`}>
+                    {verifiedDocCount}/{agent.documents.length}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -162,7 +126,11 @@ function AgentDetail({ agent: initialAgent, onClose, onVerify, onReject, onSuspe
                 <div>
                   <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-3">Contact</p>
                   <div className="space-y-2">
-                    {[{ icon: Mail, label: 'Email', value: agent.email }, { icon: Phone, label: 'Phone', value: agent.phone }, { icon: MapPin, label: 'Region', value: `${agent.city}, ${agent.region}` }].map(({ icon: Icon, label, value }) => (
+                    {[
+                      { icon: Mail, label: 'Email', value: agent.email },
+                      { icon: Phone, label: 'Phone', value: agent.phone },
+                      { icon: MapPin, label: 'Region', value: `${agent.city}, ${agent.region}` },
+                    ].map(({ icon: Icon, label, value }) => (
                       <div key={label} className="flex items-center gap-3 py-2.5 border-b border-zinc-50">
                         <Icon className="w-4 h-4 text-zinc-300 flex-shrink-0" />
                         <div className="flex-1 min-w-0">
@@ -178,9 +146,9 @@ function AgentDetail({ agent: initialAgent, onClose, onVerify, onReject, onSuspe
                   <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-3">Professional Info</p>
                   <div className="grid grid-cols-2 gap-2">
                     {[
-                      { label: 'Agency', value: agent.agencyName },
-                      { label: 'Type', value: agent.agencyType === 'agency' ? 'Agency' : 'Individual' },
-                      { label: 'License', value: agent.licenseNumber },
+                      { label: 'Agency',     value: agent.agencyName },
+                      { label: 'Type',       value: agent.agencyType === 'agency' ? 'Agency' : 'Individual' },
+                      { label: 'License',    value: agent.licenseNumber },
                       { label: 'Experience', value: `${agent.yearsExperience} years` },
                     ].map(({ label, value }) => (
                       <div key={label} className="border border-zinc-100 rounded-lg px-3 py-2.5">
@@ -202,11 +170,15 @@ function AgentDetail({ agent: initialAgent, onClose, onVerify, onReject, onSuspe
                   </div>
                 )}
 
-                {agent.stats.listings > 0 && (
+                {agent.stats?.listings > 0 && (
                   <div>
                     <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-3">Activity</p>
                     <div className="grid grid-cols-3 gap-2">
-                      {[{ label: 'Listings', value: agent.stats.listings }, { label: 'Reviews', value: agent.stats.reviews }, { label: 'Rating', value: agent.stats.rating ? `${agent.stats.rating} ★` : '—' }].map(({ label, value }) => (
+                      {[
+                        { label: 'Listings', value: agent.stats.listings },
+                        { label: 'Reviews',  value: agent.stats.reviews },
+                        { label: 'Rating',   value: agent.stats.rating ? `${agent.stats.rating} ★` : '—' },
+                      ].map(({ label, value }) => (
                         <div key={label} className="border border-zinc-100 rounded-lg px-3 py-3 text-center">
                           <p className="text-base font-bold text-zinc-900">{value}</p>
                           <p className="text-xs text-zinc-400 mt-0.5">{label}</p>
@@ -238,14 +210,18 @@ function AgentDetail({ agent: initialAgent, onClose, onVerify, onReject, onSuspe
 
                 <div>
                   <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">Admin Notes</p>
-                  <textarea value={adminNote} onChange={e => setAdminNote(e.target.value)} placeholder="Notes (only visible to admins)..." rows={3}
-                    className="w-full text-sm text-zinc-700 border border-zinc-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-zinc-400 placeholder:text-zinc-300" />
+                  <textarea
+                    value={adminNote} onChange={e => setAdminNote(e.target.value)}
+                    placeholder="Notes (only visible to admins)..." rows={3}
+                    className="w-full text-sm text-zinc-700 border border-zinc-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-zinc-400 placeholder:text-zinc-300"
+                  />
                 </div>
 
                 <div>
                   <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">Message Agent</p>
                   <textarea placeholder="Send a message to this agent..." rows={2}
-                    className="w-full text-sm text-zinc-700 border border-zinc-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-zinc-400 placeholder:text-zinc-300 mb-2" />
+                    className="w-full text-sm text-zinc-700 border border-zinc-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-zinc-400 placeholder:text-zinc-300 mb-2"
+                  />
                   <button className="flex items-center gap-1.5 text-xs font-semibold text-white bg-zinc-900 px-4 py-2 rounded-lg hover:bg-zinc-700 transition-colors">
                     <Send className="w-3 h-3" /> Send Message
                   </button>
@@ -261,7 +237,6 @@ function AgentDetail({ agent: initialAgent, onClose, onVerify, onReject, onSuspe
                     {verifiedDocCount}/{agent.documents.length} accepted
                   </span>
                 </div>
-
                 <div className="space-y-3">
                   {agent.documents.map(doc => (
                     <div key={doc.id} className="border border-zinc-100 rounded-xl overflow-hidden">
@@ -332,7 +307,7 @@ function AgentDetail({ agent: initialAgent, onClose, onVerify, onReject, onSuspe
             {showReject && (
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-zinc-500">Rejection Reason</p>
-                <textarea value={rejectText} onChange={e => setRejectText(e.target.value)} placeholder="Explain why this application was rejected..." rows={3}
+                <textarea value={rejectText} onChange={e => setRejectText(e.target.value)} placeholder="Explain why..." rows={3}
                   className="w-full text-sm border border-zinc-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-zinc-400 text-zinc-700 placeholder:text-zinc-300" />
                 <div className="flex gap-2">
                   <button onClick={() => setShowReject(false)} className="flex-1 py-2 text-xs font-semibold text-zinc-500 border border-zinc-200 rounded-lg">Cancel</button>
@@ -357,25 +332,21 @@ function AgentDetail({ agent: initialAgent, onClose, onVerify, onReject, onSuspe
               <div className="flex gap-2">
                 {isPending && (
                   <>
-                    <button onClick={() => setShowReject(true)}
-                      className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 text-sm font-semibold text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors">
+                    <button onClick={() => setShowReject(true)} className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 text-sm font-semibold text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors">
                       <XCircle className="w-4 h-4" /> Reject
                     </button>
-                    <button onClick={() => onVerify(agent)}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-white bg-zinc-900 rounded-lg hover:bg-zinc-700 transition-colors">
+                    <button onClick={() => onVerify(agent)} className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-white bg-zinc-900 rounded-lg hover:bg-zinc-700 transition-colors">
                       <Shield className="w-4 h-4" /> Verify Agent
                     </button>
                   </>
                 )}
                 {isVerified && (
-                  <button onClick={() => setShowSuspend(true)}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-zinc-600 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors">
+                  <button onClick={() => setShowSuspend(true)} className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-zinc-600 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors">
                     <Ban className="w-4 h-4" /> Suspend Agent
                   </button>
                 )}
                 {isSuspended && (
-                  <button onClick={() => onReinstate(agent)}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-white bg-zinc-900 rounded-lg hover:bg-zinc-700 transition-colors">
+                  <button onClick={() => onReinstate(agent)} className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-white bg-zinc-900 rounded-lg hover:bg-zinc-700 transition-colors">
                     <RotateCcw className="w-4 h-4" /> Reinstate Agent
                   </button>
                 )}
@@ -390,7 +361,7 @@ function AgentDetail({ agent: initialAgent, onClose, onVerify, onReject, onSuspe
 
 function AgentCard({ agent, onClick }) {
   const st = STATUS_CFG[agent.status];
-  const docCount = agent.documents.length;
+  const docCount    = agent.documents.length;
   const requiredDocs = 4;
 
   return (
@@ -436,22 +407,66 @@ function AgentCard({ agent, onClick }) {
 
 export default function AgentVerification() {
   const [activeTab, setActiveTab] = useState('Pending');
-  const [search, setSearch] = useState('');
-  const [agents, setAgents] = useState(AGENTS);
-  const [selected, setSelected] = useState(null);
+  const [search, setSearch]       = useState('');
+  const [agents, setAgents]       = useState([]);
+  const [selected, setSelected]   = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
 
-  const onVerify = (agent) => { setAgents(prev => prev.map(a => a.id === agent.id ? { ...a, status: 'verified', verifiedAt: new Date().toISOString() } : a)); setSelected(null); };
-  const onReject = (agent, reason) => { setAgents(prev => prev.map(a => a.id === agent.id ? { ...a, status: 'rejected', rejectionReason: reason } : a)); setSelected(null); };
-  const onSuspend = (agent, reason) => { setAgents(prev => prev.map(a => a.id === agent.id ? { ...a, status: 'suspended', suspendedReason: reason } : a)); setSelected(null); };
-  const onReinstate = (agent) => { setAgents(prev => prev.map(a => a.id === agent.id ? { ...a, status: 'verified', suspendedReason: '' } : a)); setSelected(null); };
+  const debouncedSearch = useDebounce(search);
 
-  const counts = TABS.reduce((acc, t) => ({ ...acc, [t]: t === 'All' ? agents.length : agents.filter(a => a.status === t.toLowerCase()).length }), {});
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchAgents({ search: debouncedSearch, status: activeTab });
+      setAgents(Array.isArray(data) ? data : data.data ?? []);
+    } catch (err) {
+      setError(err.message || 'Failed to load agents.');
+    } finally {
+      setLoading(false);
+    }
+  }, [debouncedSearch, activeTab]);
 
-  const filtered = agents.filter(a => {
-    const tabMatch = activeTab === 'All' || a.status === activeTab.toLowerCase();
-    const q = search.toLowerCase();
-    return tabMatch && (!q || [a.name, a.email, a.agencyName, a.region, a.licenseNumber].some(f => f.toLowerCase().includes(q)));
-  });
+  useEffect(() => { load(); }, [load]);
+
+  const onVerify = async (agent) => {
+    try {
+      await verifyAgent(agent.id);
+      setAgents(prev => prev.map(a => a.id === agent.id ? { ...a, status: 'verified', verifiedAt: new Date().toISOString() } : a));
+      setSelected(null);
+    } catch (err) { alert('Failed: ' + err.message); }
+  };
+
+  const onReject = async (agent, reason) => {
+    try {
+      await rejectAgent(agent.id, reason);
+      setAgents(prev => prev.map(a => a.id === agent.id ? { ...a, status: 'rejected', rejectionReason: reason } : a));
+      setSelected(null);
+    } catch (err) { alert('Failed: ' + err.message); }
+  };
+
+  const onSuspend = async (agent, reason) => {
+    try {
+      await suspendAgent(agent.id, reason);
+      setAgents(prev => prev.map(a => a.id === agent.id ? { ...a, status: 'suspended', suspendedReason: reason } : a));
+      setSelected(null);
+    } catch (err) { alert('Failed: ' + err.message); }
+  };
+
+  const onReinstate = async (agent) => {
+    try {
+      await reinstateAgent(agent.id);
+      setAgents(prev => prev.map(a => a.id === agent.id ? { ...a, status: 'verified', suspendedReason: '' } : a));
+      setSelected(null);
+    } catch (err) { alert('Failed: ' + err.message); }
+  };
+
+  // Counts derived from loaded agents (for tab badges)
+  const counts = TABS.reduce((acc, t) => ({
+    ...acc,
+    [t]: t === 'All' ? agents.length : agents.filter(a => a.status === t.toLowerCase()).length,
+  }), {});
 
   const selectedAgent = selected ? agents.find(a => a.id === selected.id) : null;
 
@@ -477,7 +492,8 @@ export default function AgentVerification() {
 
         <div className="relative mb-4">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-300" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search agents, agencies, license numbers..."
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search agents, agencies, license numbers..."
             className="w-full bg-white border border-zinc-200 rounded-lg pl-9 pr-4 py-2.5 text-sm text-zinc-800 placeholder:text-zinc-300 focus:outline-none focus:border-zinc-400 transition-colors" />
         </div>
 
@@ -490,11 +506,21 @@ export default function AgentVerification() {
           ))}
         </div>
 
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-20 gap-2 text-zinc-400">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span className="text-sm">Loading agents…</span>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center py-20 gap-3">
+            <p className="text-sm text-red-500 font-semibold">{error}</p>
+            <button onClick={load} className="text-xs font-semibold text-zinc-600 border border-zinc-200 px-4 py-2 rounded-lg hover:bg-zinc-50">Retry</button>
+          </div>
+        ) : agents.length === 0 ? (
           <div className="py-16 text-center"><User className="w-8 h-8 text-zinc-200 mx-auto mb-2" /><p className="text-sm text-zinc-300">No agents found</p></div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            {filtered.map(agent => <AgentCard key={agent.id} agent={agent} onClick={() => setSelected(agent)} />)}
+            {agents.map(agent => <AgentCard key={agent.id} agent={agent} onClick={() => setSelected(agent)} />)}
           </div>
         )}
       </div>

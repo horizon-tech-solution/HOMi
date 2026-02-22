@@ -1,85 +1,40 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Search, Flag, AlertTriangle, CheckCircle, XCircle, X,
-  Building2, MessageSquare, Shield, Ban, Trash2,
-  ExternalLink, Image as ImageIcon, Send, Eye
+  MessageSquare, Ban, Trash2, ExternalLink, Image as ImageIcon,
+  Send, Eye, Loader2
 } from 'lucide-react';
 import AdminNav from '../../components/AdminNav';
-
-const REPORTS = [
-  {
-    id: 1, type: 'fraud', priority: 'high', status: 'open', subjectType: 'listing', subjectName: 'Duplex in Omnisports',
-    reportedBy: { name: 'Kofi Asante', email: 'kofi@gmail.com', id: 'u_001' }, reportCount: 3,
-    description: 'The agent asked me to send a deposit via mobile money before any visit. The listing photos appear on another website I found via Google Images. Price is suspicious.',
-    evidence: [{ type: 'screenshot', label: 'Screenshot of money transfer request', url: 'https://images.unsplash.com/photo-1563986768494-4dee2763ff3f?w=600' }],
-    messages: [
-      { from: 'reporter', name: 'Kofi Asante', text: 'Hello, I saw the listing and contacted the agent.', time: '5d ago' },
-      { from: 'suspect', name: 'Agent (Marcus N.)', text: 'To reserve it you must send 500,000 XAF via MTN Mobile Money to 699000001.', time: '5d ago' },
-    ],
-    linkedListing: { id: 'l_006', title: 'Duplex in Omnisports', price: '10,000,000 XAF', status: 'flagged', image: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=400' },
-    subject: { name: 'Marcus Njoume', email: 'marcus.nj@yahoo.com', phone: '+237 699 000 001', role: 'user', reports: 8 },
-    submittedAt: '2024-12-13T10:00:00',
-    adminNotes: 'Confirmed fraud pattern. User has 8 reports total.',
-  },
-  {
-    id: 2, type: 'fake_listing', priority: 'high', status: 'under_review', subjectType: 'listing', subjectName: 'Villa in Bastos — 10M XAF',
-    reportedBy: { name: 'Amara Diallo', email: 'amara.d@outlook.com', id: 'u_002' }, reportCount: 2,
-    description: 'This villa is listed at 10,000,000 XAF for sale in Bastos. The market price for this area is 150–300M XAF. This looks like a bait listing to collect contacts.',
-    evidence: [], messages: [],
-    linkedListing: { id: 'l_007', title: 'Villa in Bastos', price: '10,000,000 XAF', status: 'pending', image: 'https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=400' },
-    subject: { name: 'User Unknown', email: 'bait@fake.cm', phone: '+237 600 000 002', role: 'user', reports: 2 },
-    submittedAt: '2024-12-14T14:00:00', adminNotes: '',
-  },
-  {
-    id: 3, type: 'spam', priority: 'medium', status: 'open', subjectType: 'user', subjectName: '@kwame_b',
-    reportedBy: { name: 'Jean-Paul Mbarga', email: 'jp.mbarga@camereal.cm', id: 'a_003' }, reportCount: 4,
-    description: 'This user sends automated inquiries to every listing I publish. He never replies to follow-ups and creates new accounts.',
-    evidence: [{ type: 'screenshot', label: 'Inbox showing 12 identical messages', url: 'https://images.unsplash.com/photo-1579389083078-4e7018379f7e?w=600' }],
-    messages: [],
-    linkedListing: null,
-    subject: { name: 'Kwame Boateng', email: 'kwame.b@yahoo.com', phone: '+237 677 567 890', role: 'user', reports: 4 },
-    submittedAt: '2024-12-16T09:00:00', adminNotes: 'Pattern confirmed. 4 unique agents reported the same behavior.',
-  },
-  {
-    id: 4, type: 'harassment', priority: 'medium', status: 'open', subjectType: 'user', subjectName: '@unknown_user',
-    reportedBy: { name: 'Nadia Essam', email: 'n.essam@realty.cm', id: 'a_004' }, reportCount: 1,
-    description: 'After I declined to lower the price, this user sent threatening messages.',
-    evidence: [{ type: 'screenshot', label: 'Threatening message screenshot', url: 'https://images.unsplash.com/photo-1563013544-824ae1b704d3?w=600' }],
-    messages: [
-      { from: 'reporter', name: 'Nadia Essam', text: 'I am sorry but I cannot lower the price further.', time: '3d ago' },
-      { from: 'suspect', name: 'Unknown User', text: 'You will regret this. I know where your agency is.', time: '3d ago' },
-    ],
-    linkedListing: null,
-    subject: { name: 'Unknown User', email: 'unknown@mail.cm', phone: null, role: 'user', reports: 1 },
-    submittedAt: '2024-12-15T20:00:00', adminNotes: '',
-  },
-  {
-    id: 5, type: 'misleading', priority: 'low', status: 'resolved', subjectType: 'listing', subjectName: 'Studio in Akwa — wrong location',
-    reportedBy: { name: 'Fatou Camara', email: 'fatou.c@email.cm', id: 'u_006' }, reportCount: 1,
-    description: 'Listing says Akwa but the address provided leads to Bassa, which is a very different price zone.',
-    evidence: [], messages: [],
-    linkedListing: { id: 'l_021', title: 'Studio — Akwa', price: '35,000 XAF/mo', status: 'rejected', image: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=400' },
-    subject: { name: 'Kofi Asante', email: 'kofi.asante@gmail.com', phone: '+237 677 123 456', role: 'user', reports: 0 },
-    submittedAt: '2024-12-10T08:00:00', resolution: 'Listing rejected. User notified to correct location before resubmitting.', resolvedAt: '2024-12-10T13:00:00', adminNotes: '',
-  },
-];
+import {
+  fetchReports, resolveReport, dismissReport,
+  blockReportSubject, deleteReportListing,
+} from '../../api/admin/reports';
 
 const TYPE_CFG = {
-  fraud:        { label: 'Fraud / Scam',          cls: 'bg-red-50 text-red-700 border-red-200' },
-  fake_listing: { label: 'Fake Listing',           cls: 'bg-orange-50 text-orange-700 border-orange-200' },
-  spam:         { label: 'Spam',                   cls: 'bg-amber-50 text-amber-700 border-amber-200' },
-  harassment:   { label: 'Harassment',             cls: 'bg-pink-50 text-pink-700 border-pink-200' },
-  misleading:   { label: 'Misleading Info',        cls: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
-  inappropriate:{ label: 'Inappropriate',          cls: 'bg-zinc-100 text-zinc-600 border-zinc-200' },
+  fraud:         { label: 'Fraud / Scam',    cls: 'bg-red-50 text-red-700 border-red-200' },
+  fake_listing:  { label: 'Fake Listing',    cls: 'bg-orange-50 text-orange-700 border-orange-200' },
+  spam:          { label: 'Spam',            cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  harassment:    { label: 'Harassment',      cls: 'bg-pink-50 text-pink-700 border-pink-200' },
+  misleading:    { label: 'Misleading Info', cls: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
+  inappropriate: { label: 'Inappropriate',   cls: 'bg-zinc-100 text-zinc-600 border-zinc-200' },
 };
 
 const PRIORITY_CLS = {
-  high: 'bg-red-50 text-red-700 border-red-200',
+  high:   'bg-red-50 text-red-700 border-red-200',
   medium: 'bg-amber-50 text-amber-700 border-amber-200',
-  low: 'bg-zinc-100 text-zinc-500 border-zinc-200',
+  low:    'bg-zinc-100 text-zinc-500 border-zinc-200',
 };
 
 const STATUS_TABS = ['All', 'Open', 'Under Review', 'Resolved'];
+
+function useDebounce(value, delay = 350) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
 
 function EvidenceViewer({ item, onClose }) {
   return (
@@ -98,21 +53,27 @@ function EvidenceViewer({ item, onClose }) {
   );
 }
 
-function ReportDetail({ report: initialReport, onClose, onResolve, onDismiss, onBlockSubject, onDeleteListing }) {
-  const [report] = useState(initialReport);
-  const [tab, setTab] = useState('details');
-  const [adminNote, setAdminNote] = useState(report.adminNotes);
+function ReportDetail({ report, onClose, onResolve, onDismiss, onBlockSubject, onDeleteListing }) {
+  const [tab, setTab]                 = useState('details');
+  const [adminNote, setAdminNote]     = useState(report.adminNotes);
   const [resolutionNote, setResolutionNote] = useState('');
   const [viewingEvidence, setViewingEvidence] = useState(null);
+  const [actionLoading, setActionLoading] = useState(null);
 
   const typeCfg = TYPE_CFG[report.type] || { label: report.type, cls: 'bg-zinc-100 text-zinc-600 border-zinc-200' };
-  const isOpen = report.status === 'open' || report.status === 'under_review';
+  const isOpen  = report.status === 'open' || report.status === 'under_review';
+
+  const handleAction = async (fn, label) => {
+    setActionLoading(label);
+    try { await fn(); } catch (err) { alert(`${label} failed: ${err.message}`); }
+    finally { setActionLoading(null); }
+  };
 
   const tabDefs = [
-    { key: 'details', label: 'Details' },
+    { key: 'details',  label: 'Details' },
     { key: 'evidence', label: `Evidence (${report.evidence.length})` },
     { key: 'messages', label: `Chat (${report.messages.length})` },
-    { key: 'subject', label: 'Subject' },
+    { key: 'subject',  label: 'Subject' },
   ];
 
   return (
@@ -135,7 +96,7 @@ function ReportDetail({ report: initialReport, onClose, onResolve, onDismiss, on
             <button onClick={onClose} className="p-2 rounded-lg text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition-colors flex-shrink-0"><X className="w-4 h-4" /></button>
           </div>
 
-          {/* Tabs — scrollable */}
+          {/* Tabs */}
           <div className="flex border-b border-zinc-100 px-4 sm:px-6 flex-shrink-0 overflow-x-auto">
             {tabDefs.map(({ key, label }) => (
               <button key={key} onClick={() => setTab(key)}
@@ -152,9 +113,7 @@ function ReportDetail({ report: initialReport, onClose, onResolve, onDismiss, on
                   <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">User's Report</p>
                   <div className="bg-zinc-50 border border-zinc-100 rounded-xl p-4">
                     <p className="text-sm text-zinc-700 leading-relaxed">{report.description}</p>
-                    <p className="text-xs text-zinc-400 mt-3 pt-3 border-t border-zinc-100">
-                      {report.reportedBy.name} · {report.reportedBy.email}
-                    </p>
+                    <p className="text-xs text-zinc-400 mt-3 pt-3 border-t border-zinc-100">{report.reportedBy.name} · {report.reportedBy.email}</p>
                   </div>
                 </div>
 
@@ -203,19 +162,13 @@ function ReportDetail({ report: initialReport, onClose, onResolve, onDismiss, on
               <div className="px-4 sm:px-6 py-5 space-y-4">
                 <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Evidence</p>
                 {report.evidence.length === 0 ? (
-                  <div className="py-12 text-center">
-                    <ImageIcon className="w-8 h-8 text-zinc-200 mx-auto mb-2" />
-                    <p className="text-sm text-zinc-300">No evidence submitted</p>
-                  </div>
+                  <div className="py-12 text-center"><ImageIcon className="w-8 h-8 text-zinc-200 mx-auto mb-2" /><p className="text-sm text-zinc-300">No evidence submitted</p></div>
                 ) : report.evidence.map((item, i) => (
                   <div key={i} className="border border-zinc-100 rounded-xl overflow-hidden">
                     <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-50">
                       <ImageIcon className="w-4 h-4 text-zinc-400 flex-shrink-0" />
                       <p className="text-sm font-semibold text-zinc-700 flex-1 truncate">{item.label}</p>
-                      <button onClick={() => setViewingEvidence(item)}
-                        className="text-xs font-semibold text-zinc-500 border border-zinc-200 px-3 py-1.5 rounded-lg hover:bg-zinc-50 transition-colors flex-shrink-0">
-                        View
-                      </button>
+                      <button onClick={() => setViewingEvidence(item)} className="text-xs font-semibold text-zinc-500 border border-zinc-200 px-3 py-1.5 rounded-lg hover:bg-zinc-50 transition-colors flex-shrink-0">View</button>
                     </div>
                     {item.type === 'screenshot' && (
                       <button onClick={() => setViewingEvidence(item)} className="w-full">
@@ -231,10 +184,7 @@ function ReportDetail({ report: initialReport, onClose, onResolve, onDismiss, on
               <div className="px-4 sm:px-6 py-5">
                 <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-4">Message Thread</p>
                 {report.messages.length === 0 ? (
-                  <div className="py-12 text-center">
-                    <MessageSquare className="w-8 h-8 text-zinc-200 mx-auto mb-2" />
-                    <p className="text-sm text-zinc-300">No messages attached</p>
-                  </div>
+                  <div className="py-12 text-center"><MessageSquare className="w-8 h-8 text-zinc-200 mx-auto mb-2" /><p className="text-sm text-zinc-300">No messages attached</p></div>
                 ) : (
                   <div className="space-y-3">
                     {report.messages.map((msg, i) => (
@@ -268,9 +218,7 @@ function ReportDetail({ report: initialReport, onClose, onResolve, onDismiss, on
                       <p className="text-xs text-zinc-400 capitalize">{report.subject.role}</p>
                     </div>
                     {report.subject.reports > 0 && (
-                      <span className="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-full flex-shrink-0">
-                        {report.subject.reports} reports
-                      </span>
+                      <span className="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2 py-1 rounded-full flex-shrink-0">{report.subject.reports} reports</span>
                     )}
                   </div>
                   <p className="text-sm text-zinc-600">{report.subject.email}</p>
@@ -281,14 +229,15 @@ function ReportDetail({ report: initialReport, onClose, onResolve, onDismiss, on
                   <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-2">Actions on Subject</p>
                   <div className="space-y-2">
                     {[
-                      { icon: Ban, label: 'Block this user account', action: () => onBlockSubject(report) },
-                      ...(report.linkedListing ? [{ icon: Trash2, label: 'Remove linked listing', action: () => onDeleteListing(report) }] : []),
-                      { icon: ExternalLink, label: 'View full user profile', action: () => {} },
-                      { icon: Send, label: 'Send warning message', action: () => {} },
-                    ].map(({ icon: Icon, label, action }) => (
-                      <button key={label} onClick={action}
-                        className="w-full flex items-center gap-3 px-4 py-3 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors">
-                        <Icon className="w-4 h-4 text-zinc-400" /> {label}
+                      { icon: Ban,          label: 'Block this user account',  fn: () => handleAction(() => onBlockSubject(report), 'Block') },
+                      ...(report.linkedListing ? [{ icon: Trash2, label: 'Remove linked listing', fn: () => handleAction(() => onDeleteListing(report), 'Delete') }] : []),
+                      { icon: ExternalLink, label: 'View full user profile',   fn: () => {} },
+                      { icon: Send,         label: 'Send warning message',     fn: () => {} },
+                    ].map(({ icon: Icon, label, fn }) => (
+                      <button key={label} onClick={fn} disabled={actionLoading === label}
+                        className="w-full flex items-center gap-3 px-4 py-3 border border-zinc-200 rounded-xl text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition-colors disabled:opacity-50">
+                        {actionLoading === label ? <Loader2 className="w-4 h-4 animate-spin text-zinc-400" /> : <Icon className="w-4 h-4 text-zinc-400" />}
+                        {label}
                       </button>
                     ))}
                   </div>
@@ -300,13 +249,13 @@ function ReportDetail({ report: initialReport, onClose, onResolve, onDismiss, on
           {isOpen && (
             <div className="px-4 sm:px-6 py-4 border-t border-zinc-100 bg-white flex-shrink-0">
               <div className="flex gap-2">
-                <button onClick={() => onDismiss(report, resolutionNote)}
-                  className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 text-sm font-semibold text-zinc-500 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors">
-                  <XCircle className="w-4 h-4" /> Dismiss
+                <button onClick={() => handleAction(() => onDismiss(report, resolutionNote), 'Dismiss')} disabled={!!actionLoading}
+                  className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 text-sm font-semibold text-zinc-500 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors disabled:opacity-50">
+                  {actionLoading === 'Dismiss' ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />} Dismiss
                 </button>
-                <button onClick={() => onResolve(report, resolutionNote)}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-white bg-zinc-900 rounded-lg hover:bg-zinc-700 transition-colors">
-                  <CheckCircle className="w-4 h-4" /> Mark Resolved
+                <button onClick={() => handleAction(() => onResolve(report, resolutionNote), 'Resolve')} disabled={!!actionLoading}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-white bg-zinc-900 rounded-lg hover:bg-zinc-700 transition-colors disabled:opacity-50">
+                  {actionLoading === 'Resolve' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />} Mark Resolved
                 </button>
               </div>
             </div>
@@ -318,8 +267,13 @@ function ReportDetail({ report: initialReport, onClose, onResolve, onDismiss, on
 }
 
 function ReportCard({ report, onClick }) {
-  const typeCfg = TYPE_CFG[report.type] || { label: report.type, cls: 'bg-zinc-100 text-zinc-600 border-zinc-200' };
-  const statusInfo = { open: { dot: 'bg-red-400', label: 'Open' }, under_review: { dot: 'bg-amber-400', label: 'Under Review' }, resolved: { dot: 'bg-emerald-400', label: 'Resolved' }, dismissed: { dot: 'bg-zinc-300', label: 'Dismissed' } }[report.status];
+  const typeCfg    = TYPE_CFG[report.type] || { label: report.type, cls: 'bg-zinc-100 text-zinc-600 border-zinc-200' };
+  const statusInfo = {
+    open:         { dot: 'bg-red-400',     label: 'Open' },
+    under_review: { dot: 'bg-amber-400',   label: 'Under Review' },
+    resolved:     { dot: 'bg-emerald-400', label: 'Resolved' },
+    dismissed:    { dot: 'bg-zinc-300',    label: 'Dismissed' },
+  }[report.status];
 
   return (
     <div onClick={onClick} className="bg-white border border-zinc-200 rounded-xl p-4 sm:p-5 hover:border-zinc-300 hover:shadow-sm cursor-pointer transition-all active:scale-[0.99]">
@@ -342,7 +296,7 @@ function ReportCard({ report, onClick }) {
         </span>
         <span>{new Date(report.submittedAt).toLocaleDateString()}</span>
       </div>
-      {report.evidence.length > 0 && (
+      {report.evidence?.length > 0 && (
         <div className="mt-3 pt-3 border-t border-zinc-50 flex items-center gap-1.5 text-xs text-zinc-400">
           <ImageIcon className="w-3 h-3" />{report.evidence.length} evidence item{report.evidence.length > 1 ? 's' : ''}
         </div>
@@ -353,29 +307,61 @@ function ReportCard({ report, onClick }) {
 
 export default function ReportsAndFlags() {
   const [activeTab, setActiveTab] = useState('Open');
-  const [search, setSearch] = useState('');
-  const [reports, setReports] = useState(REPORTS);
-  const [selected, setSelected] = useState(null);
+  const [search, setSearch]       = useState('');
+  const [reports, setReports]     = useState([]);
+  const [selected, setSelected]   = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
 
-  const onResolve = (report, note) => {
-    setReports(prev => prev.map(r => r.id === report.id ? { ...r, status: 'resolved', resolution: note || 'Resolved by admin.', resolvedAt: new Date().toISOString() } : r));
-    setSelected(null);
+  const debouncedSearch = useDebounce(search);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchReports({ search: debouncedSearch, status: activeTab });
+      setReports(Array.isArray(data) ? data : data.data ?? []);
+    } catch (err) {
+      setError(err.message || 'Failed to load reports.');
+    } finally {
+      setLoading(false);
+    }
+  }, [debouncedSearch, activeTab]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const onResolve = async (report, note) => {
+    try {
+      await resolveReport(report.id, note || 'Resolved by admin.');
+      setReports(prev => prev.map(r => r.id === report.id ? { ...r, status: 'resolved', resolution: note || 'Resolved by admin.', resolvedAt: new Date().toISOString() } : r));
+      setSelected(null);
+    } catch (err) { alert('Failed: ' + err.message); }
   };
-  const onDismiss = (report, note) => {
-    setReports(prev => prev.map(r => r.id === report.id ? { ...r, status: 'dismissed', resolution: note || 'Dismissed.', resolvedAt: new Date().toISOString() } : r));
-    setSelected(null);
+
+  const onDismiss = async (report, note) => {
+    try {
+      await dismissReport(report.id, note || 'Dismissed.');
+      setReports(prev => prev.map(r => r.id === report.id ? { ...r, status: 'dismissed', resolution: note || 'Dismissed.', resolvedAt: new Date().toISOString() } : r));
+      setSelected(null);
+    } catch (err) { alert('Failed: ' + err.message); }
+  };
+
+  const onBlockSubject = async (report) => {
+    try {
+      await blockReportSubject(report.id);
+    } catch (err) { alert('Failed: ' + err.message); }
+  };
+
+  const onDeleteListing = async (report) => {
+    try {
+      await deleteReportListing(report.id);
+    } catch (err) { alert('Failed: ' + err.message); }
   };
 
   const counts = STATUS_TABS.reduce((acc, t) => {
     const key = t.toLowerCase().replace(' ', '_');
     return { ...acc, [t]: t === 'All' ? reports.length : reports.filter(r => r.status === key).length };
   }, {});
-
-  const filtered = reports.filter(r => {
-    const tabMatch = activeTab === 'All' || (activeTab === 'Open' && r.status === 'open') || (activeTab === 'Under Review' && r.status === 'under_review') || (activeTab === 'Resolved' && (r.status === 'resolved' || r.status === 'dismissed'));
-    const q = search.toLowerCase();
-    return tabMatch && (!q || [r.subjectName, r.reportedBy.name, r.description].some(f => f.toLowerCase().includes(q)));
-  });
 
   const selectedReport = selected ? reports.find(r => r.id === selected.id) : null;
 
@@ -385,8 +371,7 @@ export default function ReportsAndFlags() {
         {selectedReport && (
           <ReportDetail report={selectedReport} onClose={() => setSelected(null)}
             onResolve={onResolve} onDismiss={onDismiss}
-            onBlockSubject={r => alert(`Block triggered for report #${r.id}`)}
-            onDeleteListing={r => alert(`Delete listing triggered for report #${r.id}`)} />
+            onBlockSubject={onBlockSubject} onDeleteListing={onDeleteListing} />
         )}
 
         <div className="flex items-center justify-between mb-6">
@@ -399,7 +384,7 @@ export default function ReportsAndFlags() {
           )}
         </div>
 
-        {/* Type summary — 3 cols mobile, 6 desktop */}
+        {/* Type summary */}
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-6">
           {Object.entries(TYPE_CFG).map(([key, cfg]) => {
             const c = reports.filter(r => r.type === key && (r.status === 'open' || r.status === 'under_review')).length;
@@ -418,7 +403,6 @@ export default function ReportsAndFlags() {
             className="w-full bg-white border border-zinc-200 rounded-lg pl-9 pr-4 py-2.5 text-sm text-zinc-800 placeholder:text-zinc-300 focus:outline-none focus:border-zinc-400 transition-colors" />
         </div>
 
-        {/* Tabs — scrollable */}
         <div className="flex gap-0.5 mb-5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
           {STATUS_TABS.map(t => (
             <button key={t} onClick={() => setActiveTab(t)}
@@ -428,11 +412,21 @@ export default function ReportsAndFlags() {
           ))}
         </div>
 
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-20 gap-2 text-zinc-400">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span className="text-sm">Loading reports…</span>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center py-20 gap-3">
+            <p className="text-sm text-red-500 font-semibold">{error}</p>
+            <button onClick={load} className="text-xs font-semibold text-zinc-600 border border-zinc-200 px-4 py-2 rounded-lg hover:bg-zinc-50">Retry</button>
+          </div>
+        ) : reports.length === 0 ? (
           <div className="py-16 text-center"><Flag className="w-8 h-8 text-zinc-200 mx-auto mb-2" /><p className="text-sm text-zinc-300">No reports found</p></div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-            {filtered.map(r => <ReportCard key={r.id} report={r} onClick={() => setSelected(r)} />)}
+            {reports.map(r => <ReportCard key={r.id} report={r} onClick={() => setSelected(r)} />)}
           </div>
         )}
       </div>

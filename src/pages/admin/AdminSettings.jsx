@@ -1,13 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Settings, Building2, UserCheck, Users, Bell, Globe,
-  Save, AlertTriangle, CheckCircle
+  Save, AlertTriangle, CheckCircle, Loader2
 } from 'lucide-react';
 import AdminNav from '../../components/AdminNav';
+import { fetchSettings, saveSettings, runDangerAction } from '../../api/admin/settings';
 
 const Toggle = ({ value, onChange }) => (
-  <button onClick={() => onChange(!value)}
-    className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 focus:outline-none ${value ? 'bg-zinc-900' : 'bg-zinc-200'}`}>
+  <button
+    onClick={() => onChange(!value)}
+    className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 focus:outline-none ${value ? 'bg-zinc-900' : 'bg-zinc-200'}`}
+  >
     <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${value ? 'translate-x-5' : 'translate-x-0.5'}`} />
   </button>
 );
@@ -24,15 +27,20 @@ const Row = ({ label, description, children }) => (
 
 const NumField = ({ value, onChange, min, max, suffix }) => (
   <div className="flex items-center gap-2">
-    <input type="number" value={value} min={min} max={max} onChange={e => onChange(Number(e.target.value))}
-      className="w-14 sm:w-16 border border-zinc-200 rounded-lg px-2 py-1.5 text-sm text-zinc-800 text-center focus:outline-none focus:border-zinc-400 transition-colors" />
+    <input
+      type="number" value={value} min={min} max={max}
+      onChange={e => onChange(Number(e.target.value))}
+      className="w-14 sm:w-16 border border-zinc-200 rounded-lg px-2 py-1.5 text-sm text-zinc-800 text-center focus:outline-none focus:border-zinc-400 transition-colors"
+    />
     {suffix && <span className="text-xs text-zinc-400 hidden sm:inline">{suffix}</span>}
   </div>
 );
 
 const TextField = ({ value, onChange, width = 'w-36 sm:w-48' }) => (
-  <input type="text" value={value} onChange={e => onChange(e.target.value)}
-    className={`${width} border border-zinc-200 rounded-lg px-3 py-1.5 text-sm text-zinc-800 focus:outline-none focus:border-zinc-400 transition-colors`} />
+  <input
+    type="text" value={value} onChange={e => onChange(e.target.value)}
+    className={`${width} border border-zinc-200 rounded-lg px-3 py-1.5 text-sm text-zinc-800 focus:outline-none focus:border-zinc-400 transition-colors`}
+  />
 );
 
 const Section = ({ icon: Icon, title, subtitle, children }) => (
@@ -50,32 +58,97 @@ const Section = ({ icon: Icon, title, subtitle, children }) => (
   </div>
 );
 
+const DEFAULT_SETTINGS = {
+  requireApproval: true, minPhotos: 4, maxPhotos: 25, listingExpiryDays: 90,
+  maxListingsUser: 3, maxListingsAgent: 50, allowCommercial: true,
+  allowLand: true, allowUserListings: true,
+  requireVerification: true, requireLicense: true,
+  requireAgencyProof: false, trialListings: 5,
+  requireEmailVerification: true, requirePhoneVerification: false,
+  autoBlockThreshold: 5, allowNewRegistrations: true,
+  notifyNewListing: true, notifyNewAgent: true,
+  notifyNewReport: true, notifyFraudAlert: true,
+  adminEmail: '', platformName: '', supportEmail: '',
+  currency: 'XAF', maintenanceMode: false,
+};
+
 export default function AdminSettings() {
-  const [saved, setSaved] = useState(false);
-  const [s, setS] = useState({
-    requireApproval: true, minPhotos: 4, maxPhotos: 25, listingExpiryDays: 90,
-    maxListingsUser: 3, maxListingsAgent: 50, allowCommercial: true, allowLand: true, allowUserListings: true,
-    requireVerification: true, requireLicense: true, requireAgencyProof: false, trialListings: 5,
-    requireEmailVerification: true, requirePhoneVerification: false, autoBlockThreshold: 5, allowNewRegistrations: true,
-    notifyNewListing: true, notifyNewAgent: true, notifyNewReport: true, notifyFraudAlert: true,
-    adminEmail: 'admin@propty.cm', platformName: 'Propty Cameroon', supportEmail: 'support@propty.cm',
-    currency: 'XAF', maintenanceMode: false,
-  });
+  const [s, setS]               = useState(DEFAULT_SETTINGS);
+  const [loading, setLoading]   = useState(true);
+  const [saving, setSaving]     = useState(false);
+  const [saved, setSaved]       = useState(false);
+  const [error, setError]       = useState(null);
+  const [dangerLoading, setDangerLoading] = useState(null);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await fetchSettings();
+        setS(data);
+      } catch (err) {
+        setError(err.message || 'Failed to load settings.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
 
   const set = (key, val) => setS(prev => ({ ...prev, [key]: val }));
 
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await saveSettings(s);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err) {
+      setError(err.message || 'Failed to save settings.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDanger = async (action) => {
+    if (!window.confirm(`Are you sure you want to run "${action}"? This cannot be undone.`)) return;
+    setDangerLoading(action);
+    try {
+      const res = await runDangerAction(action);
+      if (res.downloadUrl) window.open(res.downloadUrl);
+      alert(res.message || 'Action completed.');
+    } catch (err) {
+      alert('Action failed: ' + err.message);
+    } finally {
+      setDangerLoading(null);
+    }
   };
 
   const SaveBtn = ({ full }) => (
-    <button onClick={handleSave}
-      className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${full ? 'w-full justify-center' : ''} ${saved ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-zinc-900 text-white hover:bg-zinc-700'}`}>
-      {saved ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-      {saved ? 'Saved!' : 'Save Changes'}
+    <button
+      onClick={handleSave}
+      disabled={saving || loading}
+      className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-50 ${full ? 'w-full justify-center' : ''} ${saved ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-zinc-900 text-white hover:bg-zinc-700'}`}
+    >
+      {saving ? <Loader2 className="w-4 h-4 animate-spin" />
+        : saved ? <CheckCircle className="w-4 h-4" />
+        : <Save className="w-4 h-4" />}
+      {saving ? 'Saving…' : saved ? 'Saved!' : 'Save Changes'}
     </button>
   );
+
+  if (loading) {
+    return (
+      <AdminNav>
+        <div className="flex items-center justify-center py-32 gap-2 text-zinc-400">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="text-sm">Loading settings…</span>
+        </div>
+      </AdminNav>
+    );
+  }
 
   return (
     <AdminNav>
@@ -89,6 +162,10 @@ export default function AdminSettings() {
           </div>
           <div className="hidden sm:block"><SaveBtn /></div>
         </div>
+
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-600">{error}</div>
+        )}
 
         <div className="space-y-4 sm:space-y-5">
 
@@ -198,16 +275,21 @@ export default function AdminSettings() {
             </div>
             <div className="px-4 sm:px-5 py-3 space-y-1">
               {[
-                { label: 'Clear all expired listings', desc: 'Permanently remove all listings past their expiry date.' },
-                { label: 'Export all user data', desc: 'Download a full CSV export of all registered users.' },
-                { label: 'Reset platform data', desc: 'Wipe all listing and user data. Cannot be undone.' },
-              ].map(({ label, desc }) => (
-                <div key={label} className="flex items-center justify-between gap-4 py-3 border-b border-zinc-50 last:border-0">
+                { label: 'Clear all expired listings', desc: 'Permanently remove all listings past their expiry date.', action: 'clear_expired' },
+                { label: 'Export all user data',       desc: 'Download a full CSV export of all registered users.',  action: 'export_users' },
+                { label: 'Reset platform data',        desc: 'Wipe all listing and user data. Cannot be undone.',    action: 'reset_platform' },
+              ].map(({ label, desc, action }) => (
+                <div key={action} className="flex items-center justify-between gap-4 py-3 border-b border-zinc-50 last:border-0">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-zinc-700">{label}</p>
                     <p className="text-xs text-zinc-400 hidden sm:block">{desc}</p>
                   </div>
-                  <button className="flex-shrink-0 text-xs font-semibold text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors">
+                  <button
+                    onClick={() => handleDanger(action)}
+                    disabled={dangerLoading === action}
+                    className="flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold text-red-600 border border-red-200 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                  >
+                    {dangerLoading === action && <Loader2 className="w-3 h-3 animate-spin" />}
                     Run
                   </button>
                 </div>
@@ -216,14 +298,19 @@ export default function AdminSettings() {
           </div>
         </div>
 
-        {/* Bottom save — always visible on mobile */}
+        {/* Bottom save */}
         <div className="mt-6 sm:mt-8 pb-2">
           <div className="sm:hidden"><SaveBtn full /></div>
           <div className="hidden sm:flex justify-end">
-            <button onClick={handleSave}
-              className={`flex items-center gap-2 px-8 py-3 rounded-xl text-sm font-bold transition-all ${saved ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-zinc-900 text-white hover:bg-zinc-700'}`}>
-              {saved ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-              {saved ? 'All Saved!' : 'Save All Settings'}
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className={`flex items-center gap-2 px-8 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-50 ${saved ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-zinc-900 text-white hover:bg-zinc-700'}`}
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" />
+                : saved ? <CheckCircle className="w-4 h-4" />
+                : <Save className="w-4 h-4" />}
+              {saving ? 'Saving…' : saved ? 'All Saved!' : 'Save All Settings'}
             </button>
           </div>
         </div>

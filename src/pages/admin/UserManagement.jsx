@@ -1,85 +1,43 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Search, User, Shield, Ban, Trash2, X, Mail, Phone,
   Calendar, Clock, Building2, Heart, MessageSquare, AlertTriangle,
-  CheckCircle, Flag, ExternalLink, Send, RotateCcw, MoreHorizontal
+  CheckCircle, Flag, ExternalLink, Send, RotateCcw, Loader2
 } from 'lucide-react';
 import AdminNav from '../../components/AdminNav';
-
-const USERS = [
-  {
-    id: 'u_001', name: 'Kofi Asante', email: 'kofi.asante@gmail.com', phone: '+237 677 123 456',
-    role: 'user', status: 'active', joined: '2025-01-15', lastActive: '2 hours ago',
-    listings: 2, favorites: 8, inquiries: 12, reports: 0, verified: true,
-    activityLog: [
-      { type: 'inquiry', text: 'Sent inquiry for "Modern 3BR in Bonanjo"', time: '2h ago' },
-      { type: 'favorite', text: 'Saved "Luxury Villa in Bastos" to favorites', time: '1d ago' },
-      { type: 'listing', text: 'Submitted listing "Land 300m² in Bepanda"', time: '3d ago' },
-    ],
-    recentListings: [
-      { id: 1, title: 'Land 300m² in Bepanda', status: 'approved', price: '8,000,000 XAF' },
-      { id: 2, title: 'Studio — Akwa', status: 'pending', price: '35,000 XAF/mo' },
-    ],
-  },
-  {
-    id: 'u_002', name: 'Amara Diallo', email: 'amara.d@outlook.com', phone: '+237 699 234 567',
-    role: 'user', status: 'active', joined: '2025-02-03', lastActive: '1 day ago',
-    listings: 1, favorites: 15, inquiries: 7, reports: 0, verified: true,
-    activityLog: [{ type: 'inquiry', text: 'Sent inquiry for "Commercial Space Akwa"', time: '1d ago' }],
-    recentListings: [{ id: 3, title: 'Duplex in Makepe', status: 'approved', price: '95,000 XAF/mo' }],
-  },
-  {
-    id: 'a_003', name: 'Jean-Paul Mbarga', email: 'jp.mbarga@camereal.cm', phone: '+237 655 234 567',
-    role: 'agent', status: 'active', agencyName: 'CameReal Group', joined: '2023-10-01', lastActive: '30 min ago',
-    listings: 24, favorites: 0, inquiries: 89, reports: 0, verified: true,
-    activityLog: [
-      { type: 'listing', text: 'Published "3BR in Akwa" — approved', time: '30m ago' },
-      { type: 'inquiry', text: 'Responded to 4 inquiries', time: '2h ago' },
-    ],
-    recentListings: [
-      { id: 4, title: 'Modern 3BR in Akwa', status: 'approved', price: '80,000 XAF/mo' },
-      { id: 5, title: 'Commercial 500m²', status: 'pending', price: '300,000 XAF/mo' },
-    ],
-  },
-  {
-    id: 'u_005', name: 'Kwame Boateng', email: 'kwame.b@yahoo.com', phone: '+237 677 567 890',
-    role: 'user', status: 'blocked', joined: '2024-03-10', lastActive: '2 weeks ago',
-    listings: 0, favorites: 3, inquiries: 2, reports: 4, verified: false,
-    blockReason: 'Repeated spam inquiries and abusive messages sent to multiple agents.',
-    blockedAt: '2024-06-15',
-    activityLog: [{ type: 'block', text: 'Account blocked by Admin — spam violation', time: '6mo ago' }],
-    recentListings: [],
-  },
-  {
-    id: 'u_006', name: 'Fatou Camara', email: 'fatou.c@email.cm', phone: '+237 677 789 012',
-    role: 'user', status: 'active', joined: '2025-04-22', lastActive: '5 hours ago',
-    listings: 0, favorites: 22, inquiries: 5, reports: 0, verified: true,
-    activityLog: [{ type: 'inquiry', text: 'Sent inquiry for "Villa in Bastos"', time: '5h ago' }],
-    recentListings: [],
-  },
-  {
-    id: 'u_fraud', name: 'Marcus Njoume', email: 'marcus.nj@yahoo.com', phone: '+237 699 000 001',
-    role: 'user', status: 'blocked', joined: '2024-11-01', lastActive: '3 weeks ago',
-    listings: 5, favorites: 0, inquiries: 0, reports: 8, verified: false,
-    blockReason: 'Verified fraud — submitted 5 fake listings with stolen photos. Financial scam confirmed.',
-    blockedAt: '2024-12-10',
-    activityLog: [{ type: 'block', text: 'Account blocked — fraud investigation', time: '1w ago' }],
-    recentListings: [{ id: 6, title: 'Duplex in Omnisports', status: 'rejected', price: '10,000,000 XAF' }],
-  },
-];
+import { fetchUsers, blockUser, unblockUser, deleteUser } from '../../api/admin/users';
 
 const ROLE_TABS = ['All', 'Users', 'Agents', 'Blocked'];
 
-const activityIcon = { inquiry: MessageSquare, favorite: Heart, listing: Building2, login: User, block: Ban, report: Flag };
+const activityIcon = {
+  inquiry: MessageSquare, favorite: Heart, listing: Building2,
+  login: User, block: Ban, report: Flag,
+};
 
-function UserDetail({ user: initialUser, onClose, onBlock, onUnblock, onDelete }) {
-  const [user] = useState(initialUser);
-  const [tab, setTab] = useState('overview');
+function useDebounce(value, delay = 350) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+function UserDetail({ user, onClose, onBlock, onUnblock, onDelete }) {
+  const [tab, setTab]             = useState('overview');
   const [blockReason, setBlockReason] = useState('');
   const [showBlock, setShowBlock] = useState(false);
-  const [msgText, setMsgText] = useState('');
+  const [msgText, setMsgText]     = useState('');
+  const [actionLoading, setActionLoading] = useState(null);
+
   const isBlocked = user.status === 'blocked';
-  const isAgent = user.role === 'agent';
+  const isAgent   = user.role === 'agent';
+
+  const handleAction = async (fn, label) => {
+    setActionLoading(label);
+    try { await fn(); } catch (err) { alert(`${label} failed: ${err.message}`); }
+    finally { setActionLoading(null); }
+  };
 
   return (
     <div className="fixed inset-0 z-40 bg-black/30 flex justify-end" onClick={onClose}>
@@ -130,10 +88,10 @@ function UserDetail({ user: initialUser, onClose, onBlock, onUnblock, onDelete }
                 <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-3">Contact</p>
                 <div className="space-y-2">
                   {[
-                    { icon: Mail, label: 'Email', value: user.email },
-                    { icon: Phone, label: 'Phone', value: user.phone },
+                    { icon: Mail,     label: 'Email',        value: user.email },
+                    { icon: Phone,    label: 'Phone',        value: user.phone },
                     { icon: Calendar, label: 'Member since', value: new Date(user.joined).toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' }) },
-                    { icon: Clock, label: 'Last active', value: user.lastActive },
+                    { icon: Clock,    label: 'Last active',  value: user.lastActive },
                   ].map(({ icon: Icon, label, value }) => (
                     <div key={label} className="flex items-center gap-3 py-2 border-b border-zinc-50">
                       <Icon className="w-4 h-4 text-zinc-300 flex-shrink-0" />
@@ -150,10 +108,10 @@ function UserDetail({ user: initialUser, onClose, onBlock, onUnblock, onDelete }
                 <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-3">Stats</p>
                 <div className="grid grid-cols-4 gap-2">
                   {[
-                    { icon: Building2, label: 'Listings', value: user.listings },
-                    { icon: Heart, label: 'Saved', value: user.favorites },
-                    { icon: MessageSquare, label: 'Inquiries', value: user.inquiries },
-                    { icon: Flag, label: 'Reports', value: user.reports, warn: user.reports > 0 },
+                    { icon: Building2,    label: 'Listings',  value: user.listings,  warn: false },
+                    { icon: Heart,        label: 'Saved',     value: user.favorites, warn: false },
+                    { icon: MessageSquare,label: 'Inquiries', value: user.inquiries, warn: false },
+                    { icon: Flag,         label: 'Reports',   value: user.reports,   warn: user.reports > 0 },
                   ].map(({ icon: Icon, label, value, warn }) => (
                     <div key={label} className="border border-zinc-100 rounded-lg py-3 text-center">
                       <Icon className={`w-4 h-4 mx-auto mb-1 ${warn ? 'text-red-400' : 'text-zinc-400'}`} />
@@ -184,8 +142,8 @@ function UserDetail({ user: initialUser, onClose, onBlock, onUnblock, onDelete }
 
           {tab === 'listings' && (
             <div className="px-4 sm:px-6 py-5">
-              <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-4">Listings ({user.recentListings.length})</p>
-              {user.recentListings.length === 0 ? (
+              <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-4">Listings ({user.recentListings?.length ?? 0})</p>
+              {!user.recentListings?.length ? (
                 <div className="py-12 text-center"><Building2 className="w-8 h-8 text-zinc-200 mx-auto mb-2" /><p className="text-sm text-zinc-300">No listings</p></div>
               ) : (
                 <div className="space-y-2">
@@ -211,25 +169,29 @@ function UserDetail({ user: initialUser, onClose, onBlock, onUnblock, onDelete }
           {tab === 'activity' && (
             <div className="px-4 sm:px-6 py-5">
               <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-4">Activity Timeline</p>
-              <div className="space-y-3">
-                {user.activityLog.map((ev, i, arr) => {
-                  const Icon = activityIcon[ev.type] || Clock;
-                  return (
-                    <div key={i} className="flex gap-3">
-                      <div className="flex flex-col items-center">
-                        <div className="w-7 h-7 rounded-full bg-zinc-100 flex items-center justify-center flex-shrink-0">
-                          <Icon className="w-3.5 h-3.5 text-zinc-500" />
+              {!user.activityLog?.length ? (
+                <div className="py-12 text-center"><Clock className="w-8 h-8 text-zinc-200 mx-auto mb-2" /><p className="text-sm text-zinc-300">No activity</p></div>
+              ) : (
+                <div className="space-y-3">
+                  {user.activityLog.map((ev, i, arr) => {
+                    const Icon = activityIcon[ev.type] || Clock;
+                    return (
+                      <div key={i} className="flex gap-3">
+                        <div className="flex flex-col items-center">
+                          <div className="w-7 h-7 rounded-full bg-zinc-100 flex items-center justify-center flex-shrink-0">
+                            <Icon className="w-3.5 h-3.5 text-zinc-500" />
+                          </div>
+                          {i < arr.length - 1 && <div className="w-px flex-1 bg-zinc-100 my-1.5" />}
                         </div>
-                        {i < arr.length - 1 && <div className="w-px flex-1 bg-zinc-100 my-1.5" />}
+                        <div className="pb-4 flex-1 min-w-0">
+                          <p className="text-sm text-zinc-700">{ev.text}</p>
+                          <p className="text-xs text-zinc-400 mt-0.5">{ev.time}</p>
+                        </div>
                       </div>
-                      <div className="pb-4 flex-1 min-w-0">
-                        <p className="text-sm text-zinc-700">{ev.text}</p>
-                        <p className="text-xs text-zinc-400 mt-0.5">{ev.time}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -243,8 +205,10 @@ function UserDetail({ user: initialUser, onClose, onBlock, onUnblock, onDelete }
                 className="w-full text-sm border border-zinc-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:border-zinc-400 text-zinc-700 placeholder:text-zinc-300" />
               <div className="flex gap-2">
                 <button onClick={() => setShowBlock(false)} className="flex-1 py-2 text-xs font-semibold text-zinc-500 border border-zinc-200 rounded-lg">Cancel</button>
-                <button onClick={() => blockReason.trim() && onBlock(user, blockReason)} disabled={!blockReason.trim()}
-                  className="flex-1 py-2 text-xs font-semibold text-white bg-red-600 rounded-lg disabled:opacity-40">Confirm Block</button>
+                <button onClick={() => blockReason.trim() && handleAction(() => onBlock(user, blockReason), 'Block')} disabled={!blockReason.trim() || actionLoading === 'Block'}
+                  className="flex-1 py-2 text-xs font-semibold text-white bg-red-600 rounded-lg disabled:opacity-40 flex items-center justify-center gap-1.5">
+                  {actionLoading === 'Block' && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Confirm Block
+                </button>
               </div>
             </div>
           )}
@@ -257,14 +221,14 @@ function UserDetail({ user: initialUser, onClose, onBlock, onUnblock, onDelete }
                 </button>
               )}
               {isBlocked && (
-                <button onClick={() => onUnblock(user)}
-                  className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 text-sm font-semibold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors">
-                  <RotateCcw className="w-4 h-4" /> Unblock
+                <button onClick={() => handleAction(() => onUnblock(user), 'Unblock')} disabled={actionLoading === 'Unblock'}
+                  className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 text-sm font-semibold text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors disabled:opacity-50">
+                  {actionLoading === 'Unblock' ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />} Unblock
                 </button>
               )}
-              <button onClick={() => onDelete(user)}
-                className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 text-sm font-semibold text-zinc-500 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors">
-                <Trash2 className="w-4 h-4" />
+              <button onClick={() => handleAction(() => onDelete(user), 'Delete')} disabled={actionLoading === 'Delete'}
+                className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 text-sm font-semibold text-zinc-500 border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors disabled:opacity-50">
+                {actionLoading === 'Delete' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
               </button>
               {isAgent && (
                 <button className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-white bg-zinc-900 rounded-lg hover:bg-zinc-700 transition-colors">
@@ -279,7 +243,6 @@ function UserDetail({ user: initialUser, onClose, onBlock, onUnblock, onDelete }
   );
 }
 
-/* Mobile user card */
 function UserCard({ user, onClick }) {
   const statusDot = user.status === 'active' ? 'bg-emerald-400' : 'bg-red-400';
   return (
@@ -328,7 +291,6 @@ function UserCard({ user, onClick }) {
   );
 }
 
-/* Desktop table row */
 function UserRow({ user, onClick }) {
   const statusDot = user.status === 'active' ? 'bg-emerald-400' : 'bg-red-400';
   return (
@@ -367,32 +329,61 @@ function UserRow({ user, onClick }) {
 
 export default function UserManagement() {
   const [activeTab, setActiveTab] = useState('All');
-  const [search, setSearch] = useState('');
-  const [users, setUsers] = useState(USERS);
-  const [selected, setSelected] = useState(null);
+  const [search, setSearch]       = useState('');
+  const [users, setUsers]         = useState([]);
+  const [selected, setSelected]   = useState(null);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
 
-  const onBlock = (user, reason) => {
-    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: 'blocked', blockReason: reason, blockedAt: new Date().toISOString().slice(0, 10) } : u));
-    setSelected(null);
+  const debouncedSearch = useDebounce(search);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchUsers({ search: debouncedSearch, role: activeTab });
+      setUsers(Array.isArray(data) ? data : data.data ?? []);
+    } catch (err) {
+      setError(err.message || 'Failed to load users.');
+    } finally {
+      setLoading(false);
+    }
+  }, [debouncedSearch, activeTab]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const onBlock = async (user, reason) => {
+    try {
+      await blockUser(user.id, reason);
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: 'blocked', blockReason: reason, blockedAt: new Date().toISOString().slice(0, 10) } : u));
+      setSelected(null);
+    } catch (err) { alert('Failed: ' + err.message); }
   };
-  const onUnblock = (user) => {
-    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: 'active', blockReason: undefined } : u));
-    setSelected(null);
+
+  const onUnblock = async (user) => {
+    try {
+      await unblockUser(user.id);
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: 'active', blockReason: undefined } : u));
+      setSelected(null);
+    } catch (err) { alert('Failed: ' + err.message); }
   };
-  const onDelete = (user) => {
-    if (window.confirm(`Permanently delete ${user.name}'s account?`)) {
+
+  const onDelete = async (user) => {
+    if (!window.confirm(`Permanently delete ${user.name}'s account?`)) return;
+    try {
+      await deleteUser(user.id);
       setUsers(prev => prev.filter(u => u.id !== user.id));
       setSelected(null);
-    }
+    } catch (err) { alert('Failed: ' + err.message); }
   };
 
-  const counts = { All: users.length, Users: users.filter(u => u.role === 'user' && u.status !== 'blocked').length, Agents: users.filter(u => u.role === 'agent' && u.status !== 'blocked').length, Blocked: users.filter(u => u.status === 'blocked').length };
-
-  const filtered = users.filter(u => {
-    const tabMatch = activeTab === 'All' || (activeTab === 'Users' && u.role === 'user' && u.status !== 'blocked') || (activeTab === 'Agents' && u.role === 'agent' && u.status !== 'blocked') || (activeTab === 'Blocked' && u.status === 'blocked');
-    const q = search.toLowerCase();
-    return tabMatch && (!q || [u.name, u.email, u.phone, u.agencyName || ''].some(f => f.toLowerCase().includes(q)));
-  });
+  // Derive local counts from loaded data
+  const counts = {
+    All:     users.length,
+    Users:   users.filter(u => u.role === 'user'  && u.status !== 'blocked').length,
+    Agents:  users.filter(u => u.role === 'agent' && u.status !== 'blocked').length,
+    Blocked: users.filter(u => u.status === 'blocked').length,
+  };
 
   const selectedUser = selected ? users.find(u => u.id === selected.id) : null;
 
@@ -408,7 +399,12 @@ export default function UserManagement() {
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-6">
-          {[{ label: 'Total Accounts', value: users.length }, { label: 'Regular Users', value: counts.Users }, { label: 'Active Agents', value: counts.Agents }, { label: 'Blocked', value: counts.Blocked }].map((s, i) => (
+          {[
+            { label: 'Total Accounts',  value: counts.All },
+            { label: 'Regular Users',   value: counts.Users },
+            { label: 'Active Agents',   value: counts.Agents },
+            { label: 'Blocked',         value: counts.Blocked },
+          ].map((s, i) => (
             <div key={i} className="bg-white border border-zinc-200 rounded-xl px-4 py-4">
               <p className="text-xl font-bold text-zinc-900">{s.value}</p>
               <p className="text-xs text-zinc-400 mt-0.5">{s.label}</p>
@@ -416,14 +412,12 @@ export default function UserManagement() {
           ))}
         </div>
 
-        {/* Search */}
         <div className="relative mb-4">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-300" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, email, phone..."
             className="w-full bg-white border border-zinc-200 rounded-lg pl-9 pr-4 py-2.5 text-sm text-zinc-800 placeholder:text-zinc-300 focus:outline-none focus:border-zinc-400 transition-colors" />
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-0.5 mb-5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
           {ROLE_TABS.map(t => (
             <button key={t} onClick={() => setActiveTab(t)}
@@ -433,34 +427,48 @@ export default function UserManagement() {
           ))}
         </div>
 
-        {/* Mobile cards */}
-        <div className="sm:hidden grid grid-cols-1 gap-3">
-          {filtered.map(u => <UserCard key={u.id} user={u} onClick={() => setSelected(u)} />)}
-          {filtered.length === 0 && (
-            <div className="py-16 text-center"><User className="w-8 h-8 text-zinc-200 mx-auto mb-2" /><p className="text-sm text-zinc-300">No users found</p></div>
-          )}
-        </div>
-
-        {/* Desktop table */}
-        <div className="hidden sm:block bg-white border border-zinc-200 rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-zinc-100">
-                  {['User', 'Role', 'Agency', 'Joined', 'Listings', 'Last Active', 'Reports'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-zinc-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(u => <UserRow key={u.id} user={u} onClick={() => setSelected(u)} />)}
-              </tbody>
-            </table>
-            {filtered.length === 0 && (
-              <div className="py-16 text-center"><User className="w-8 h-8 text-zinc-200 mx-auto mb-2" /><p className="text-sm text-zinc-300">No users found</p></div>
-            )}
+        {loading ? (
+          <div className="flex items-center justify-center py-20 gap-2 text-zinc-400">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span className="text-sm">Loading users…</span>
           </div>
-        </div>
+        ) : error ? (
+          <div className="flex flex-col items-center py-20 gap-3">
+            <p className="text-sm text-red-500 font-semibold">{error}</p>
+            <button onClick={load} className="text-xs font-semibold text-zinc-600 border border-zinc-200 px-4 py-2 rounded-lg hover:bg-zinc-50">Retry</button>
+          </div>
+        ) : (
+          <>
+            {/* Mobile cards */}
+            <div className="sm:hidden grid grid-cols-1 gap-3">
+              {users.length === 0
+                ? <div className="py-16 text-center"><User className="w-8 h-8 text-zinc-200 mx-auto mb-2" /><p className="text-sm text-zinc-300">No users found</p></div>
+                : users.map(u => <UserCard key={u.id} user={u} onClick={() => setSelected(u)} />)
+              }
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden sm:block bg-white border border-zinc-200 rounded-xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-zinc-100">
+                      {['User', 'Role', 'Agency', 'Joined', 'Listings', 'Last Active', 'Reports'].map(h => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-zinc-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map(u => <UserRow key={u.id} user={u} onClick={() => setSelected(u)} />)}
+                  </tbody>
+                </table>
+                {users.length === 0 && (
+                  <div className="py-16 text-center"><User className="w-8 h-8 text-zinc-200 mx-auto mb-2" /><p className="text-sm text-zinc-300">No users found</p></div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </AdminNav>
   );
