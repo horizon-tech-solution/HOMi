@@ -4,7 +4,7 @@ import {
   Trash2, MessageSquare, UserCheck, AlertTriangle, Download, Loader2
 } from 'lucide-react';
 import AdminNav from '../../components/AdminNav';
-import { fetchActivityLog, exportActivityLogCSV } from '../../api/admin/activitylog';
+import { fetchActivityLog, exportActivityLogCSV } from '../../api/admin/activityLog';
 
 const ACTION_CFG = {
   listing_approved:   { icon: CheckCircle,    label: 'Approved',           cls: 'text-emerald-600 bg-emerald-50' },
