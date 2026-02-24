@@ -34,6 +34,9 @@ import UserManagement from './pages/admin/UserManagement';
 import ListingsApproval from './pages/admin/ListingsApproval';
 import ActivityLog from './pages/admin/ActivityLogs';
 import Analytics from './pages/admin/Analytics';
+import AdminLogin from './pages/auth/AdminLogin';
+import AdminRoute from './components/AdminRoute';
+
 
 import NotFound from './pages/error/NotFound';
 
@@ -116,14 +119,16 @@ function App() {
           <Route path="/agent/notifications" element={<AgentNotifications />} />
 
           {/* Admin */}
-          <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="/admin/agents" element={<AgentVerification />} />
-          <Route path="/admin/users" element={<UserManagement />} />
-          <Route path="/admin/reports" element={<ReportsAndFlags />} />
-          <Route path="/admin/listings" element={<ListingsApproval />} />
-          <Route path="/admin/settings" element={<AdminSettings />} />
-          <Route path="/admin/activity" element={<ActivityLog />} />
-          <Route path="/admin/analytics" element={<Analytics />} />
+
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+            <Route path="/admin/agents" element={<AdminRoute><AgentVerification /></AdminRoute>} />
+            <Route path="/admin/users" element={<AdminRoute><UserManagement /></AdminRoute>} />
+            <Route path="/admin/reports" element={<AdminRoute><ReportsAndFlags /></AdminRoute>} />
+            <Route path="/admin/listings" element={<AdminRoute><ListingsApproval /></AdminRoute>} />
+            <Route path="/admin/settings" element={<AdminRoute><AdminSettings /></AdminRoute>} />
+            <Route path="/admin/activity" element={<AdminRoute><ActivityLog /></AdminRoute>} />
+            <Route path="/admin/analytics" element={<AdminRoute><Analytics /></AdminRoute>} />
 
           {/* 404 Catch-all */}
           <Route path="*" element={<NotFound />} />
