@@ -622,10 +622,12 @@ const Properties = () => {
       {/* DESKTOP LAYOUT */}
       <div className="hidden lg:flex h-[calc(100vh-180px)]">
         <div className="lg:w-1/2 xl:w-3/5 relative">
+          
           <Map
             listings={listings}
             center={mapCenter}
             onMarkerClick={handleMarkerClick}
+            onViewProperty={handlePropertyClick}  
             selectedListingId={selectedListing}
             height="100%"
           />
@@ -668,10 +670,12 @@ const Properties = () => {
 
       {/* MOBILE LAYOUT */}
       <div className="lg:hidden h-[calc(100vh-76px)] relative overflow-hidden">
+        
         <Map
           listings={listings}
           center={mapCenter}
           onMarkerClick={handleMarkerClick}
+          onViewProperty={handlePropertyClick}  
           selectedListingId={selectedListing}
           height="100%"
         />
