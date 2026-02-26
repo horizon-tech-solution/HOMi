@@ -1,4 +1,3 @@
-// src/api/reports.js
 const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 const getToken = () => {
@@ -17,14 +16,16 @@ const request = async (path, options = {}) => {
   return res.json();
 };
 
-export const fetchReports        = ({ search = '', status = '' } = {}) => {
+export const fetchReports = ({ search = '', status = '' } = {}) => {
   const params = new URLSearchParams();
   if (search) params.set('search', search);
-  if (status && status !== 'All') params.set('status', status.toLowerCase().replace(' ', '_'));
+  if (status && status !== 'All')
+    params.set('status', status.toLowerCase().replace(' ', '_'));
   return request(`/admin/reports?${params.toString()}`);
 };
-export const resolveReport       = (id, resolution) => request(`/admin/reports/${id}/resolve`, { method: 'POST', body: JSON.stringify({ resolution }) });
-export const dismissReport       = (id, resolution) => request(`/admin/reports/${id}/dismiss`, { method: 'POST', body: JSON.stringify({ resolution }) });
-export const blockReportSubject  = (id) => request(`/admin/reports/${id}/block-subject`, { method: 'POST' });
-export const deleteReportListing = (id) => request(`/admin/reports/${id}/delete-listing`, { method: 'DELETE' });
-export const saveReportNotes     = (id, notes) => request(`/admin/reports/${id}/notes`, { method: 'PATCH', body: JSON.stringify({ notes }) });
+
+export const resolveReport       = (id, resolution) => request(`/admin/reports/${id}/resolve`,       { method: 'POST',   body: JSON.stringify({ resolution }) });
+export const dismissReport       = (id, note)       => request(`/admin/reports/${id}/dismiss`,       { method: 'POST',   body: JSON.stringify({ note }) });
+export const blockReportSubject  = (id)             => request(`/admin/reports/${id}/block-subject`, { method: 'POST' });
+export const deleteReportListing = (id)             => request(`/admin/reports/${id}/delete-listing`,{ method: 'DELETE' });
+export const saveReportNotes     = (id, notes)      => request(`/admin/reports/${id}/notes`,         { method: 'PATCH',  body: JSON.stringify({ notes }) });

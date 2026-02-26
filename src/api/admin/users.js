@@ -17,13 +17,16 @@ const request = async (path, options = {}) => {
   return res.json();
 };
 
-export const fetchUsers     = ({ search = '', role = '' } = {}) => {
+
+export const fetchUsers = ({ search = '', role = '' } = {}) => {
   const params = new URLSearchParams();
   if (search) params.set('search', search);
-  if (role && role !== 'All') {
-    if (role === 'Blocked') { params.set('status', 'blocked'); }
-    else { params.set('role', role.toLowerCase()); params.set('status', 'active'); }
-  }
+  
+  // Map tab labels to actual DB values
+  const roleMap = { Users: 'user', Agents: 'agent', Blocked: 'blocked' };
+  const mappedRole = roleMap[role];
+  if (mappedRole) params.set('role', mappedRole);
+  
   return request(`/admin/users?${params.toString()}`);
 };
 export const blockUser      = (userId, reason) => request(`/admin/users/${userId}/block`, { method: 'POST', body: JSON.stringify({ reason }) });
