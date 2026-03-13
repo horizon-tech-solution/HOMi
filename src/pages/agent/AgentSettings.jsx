@@ -1,767 +1,554 @@
-import { useState } from 'react';
+// src/pages/agent/AgentSettings.jsx
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AgentNav from '../../components/AgentNav';
-import { 
-  Bell,
-  Settings as SettingsIcon,
-  Lock,
-  Globe,
-  CreditCard,
-  User,
-  Mail,
-  Smartphone,
-  Eye,
-  EyeOff,
-  Save,
-  X,
-  CheckCircle,
-  Trash2,
-  AlertTriangle,
-  Shield,
-  Moon,
-  Sun
+import { get, put, post } from '../../api/agents/base';
+import {
+  ArrowLeft, Bell, Lock, Shield, Eye, EyeOff,
+  Check, AlertTriangle, AlertCircle, CheckCircle,
+  Loader2, X, Trash2, MessageSquare, Home,
 } from 'lucide-react';
 
-const AgentSettings = () => {
-  const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('account');
-  const [isSaving, setIsSaving] = useState(false);
-  const [successMessage, setSuccessMessage] = useState('');
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+// ─── API calls ─────────────────────────────────────────────────────────────
 
-  // Settings state
-  const [settings, setSettings] = useState({
-    // Account Settings
-    email: 'jean.dupont@realestate.cm',
-    username: 'jeandupont',
-    twoFactorAuth: false,
-    
-    // Password
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: '',
-    
-    // Notification Settings
-    emailNotifications: {
-      newLeads: true,
-      messages: true,
-      viewingRequests: true,
-      propertyUpdates: false,
-      weeklyReport: true,
-      marketingEmails: false
-    },
-    
-    pushNotifications: {
-      newLeads: true,
-      messages: true,
-      viewingRequests: true,
-      propertyUpdates: false
-    },
-    
-    smsNotifications: {
-      urgentLeads: true,
-      viewingReminders: true,
-      systemAlerts: false
-    },
-    
-    // Privacy Settings
-    profileVisibility: 'public', // public, private, verified-only
-    showPhone: true,
-    showEmail: true,
-    showWhatsApp: true,
-    allowMessages: true,
-    
-    // Appearance
-    theme: 'light', // light, dark, auto
-    language: 'en',
-    
-    // Auto-response
-    autoResponse: false,
-    autoResponseMessage: 'Thank you for your inquiry. I will get back to you within 24 hours.'
+const fetchSettings           = ()     => get('/agent/settings');
+const saveNotificationPrefs   = (data) => put('/agent/settings/notifications', data);
+const savePrivacySettings     = (data) => put('/agent/settings/privacy', data);
+const changePassword          = (data) => post('/agent/settings/change-password', data);
+const deleteAccount           = (data) => post('/agent/settings/delete-account', data);
+
+// ─── Toggle component ──────────────────────────────────────────────────────
+
+const Toggle = ({ checked, onChange }) => (
+  <button type="button" onClick={() => onChange(!checked)}
+    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
+      checked ? 'bg-amber-600' : 'bg-gray-200'
+    }`}>
+    <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+      checked ? 'translate-x-6' : 'translate-x-1'
+    }`} />
+  </button>
+);
+
+// ─── Section wrapper ───────────────────────────────────────────────────────
+
+const Section = ({ title, subtitle, children }) => (
+  <div className="space-y-4">
+    <div>
+      <h3 className="text-base font-bold text-gray-900">{title}</h3>
+      {subtitle && <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>}
+    </div>
+    {children}
+  </div>
+);
+
+const ToggleRow = ({ label, sublabel, checked, onChange }) => (
+  <div className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
+    <div className="mr-4">
+      <p className="text-sm font-medium text-gray-900">{label}</p>
+      {sublabel && <p className="text-xs text-gray-400 mt-0.5">{sublabel}</p>}
+    </div>
+    <Toggle checked={checked} onChange={onChange} />
+  </div>
+);
+
+const fc = (err) =>
+  `w-full px-4 py-3 border rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-colors ${
+    err ? 'border-red-400 bg-red-50' : 'border-gray-200'
+  }`;
+
+// ─── Main ──────────────────────────────────────────────────────────────────
+
+export default function AgentSettings() {
+  const navigate = useNavigate();
+
+  const [tab, setTab]         = useState('notifications');
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  // per-section saving states
+  const [savingNotifs,  setSavingNotifs]  = useState(false);
+  const [savingPrivacy, setSavingPrivacy] = useState(false);
+  const [savingPwd,     setSavingPwd]     = useState(false);
+  const [deletingAcct,  setDeletingAcct]  = useState(false);
+
+  // per-section success/error
+  const [notifMsg,   setNotifMsg]   = useState('');
+  const [privacyMsg, setPrivacyMsg] = useState('');
+  const [pwdMsg,     setPwdMsg]     = useState('');
+  const [pwdErr,     setPwdErr]     = useState('');
+  const [deleteErr,  setDeleteErr]  = useState('');
+
+  const [showCurrentPwd, setShowCurrentPwd] = useState(false);
+  const [showNewPwd,     setShowNewPwd]     = useState(false);
+  const [showConfirmPwd, setShowConfirmPwd] = useState(false);
+  const [showDeletePwd,  setShowDeletePwd]  = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // ── Notification prefs ─────────────────────────────────────────────────
+
+  const [notifs, setNotifs] = useState({
+    new_inquiry:    true,   // agent gets notified when a user sends an inquiry
+    inquiry_reply:  true,   // agent gets notified when user replies to their message
+    listing_status: true,   // agent notified when admin approves/rejects a listing
   });
 
-  const [errors, setErrors] = useState({});
+  // ── Privacy ────────────────────────────────────────────────────────────
 
-  const tabs = [
-    { id: 'account', label: 'Account', icon: User },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'privacy', label: 'Privacy', icon: Shield },
-    { id: 'appearance', label: 'Appearance', icon: Moon },
-    { id: 'security', label: 'Security', icon: Lock }
+  const [privacy, setPrivacy] = useState({
+    show_phone:     true,
+    show_email:     true,
+    show_whatsapp:  true,
+    allow_messages: true,
+  });
+
+  // ── Password ───────────────────────────────────────────────────────────
+
+  const [pwd, setPwd] = useState({
+    current_password: '',
+    new_password: '',
+    confirm_password: '',
+  });
+
+  const [deletePassword, setDeletePassword] = useState('');
+
+  // ── Load ───────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true); setLoadError('');
+      try {
+        const data = await fetchSettings();
+        if (data.notifs)   setNotifs(n  => ({ ...n,  ...data.notifs   }));
+        if (data.privacy)  setPrivacy(p => ({ ...p,  ...data.privacy  }));
+      } catch (err) {
+        setLoadError(err?.message || 'Failed to load settings');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  // ── Save notifications ─────────────────────────────────────────────────
+
+  const handleSaveNotifs = async () => {
+    setSavingNotifs(true); setNotifMsg('');
+    try {
+      await saveNotificationPrefs(notifs);
+      setNotifMsg('saved');
+      setTimeout(() => setNotifMsg(''), 3000);
+    } catch (err) {
+      setNotifMsg('error:' + (err?.message || 'Failed to save'));
+    } finally {
+      setSavingNotifs(false);
+    }
+  };
+
+  // ── Save privacy ───────────────────────────────────────────────────────
+
+  const handleSavePrivacy = async () => {
+    setSavingPrivacy(true); setPrivacyMsg('');
+    try {
+      await savePrivacySettings(privacy);
+      setPrivacyMsg('saved');
+      setTimeout(() => setPrivacyMsg(''), 3000);
+    } catch (err) {
+      setPrivacyMsg('error:' + (err?.message || 'Failed to save'));
+    } finally {
+      setSavingPrivacy(false);
+    }
+  };
+
+  // ── Change password ────────────────────────────────────────────────────
+
+  const handleChangePassword = async () => {
+    setPwdErr(''); setPwdMsg('');
+    if (!pwd.current_password)            return setPwdErr('Current password is required');
+    if (!pwd.new_password)                return setPwdErr('New password is required');
+    if (pwd.new_password.length < 8)      return setPwdErr('New password must be at least 8 characters');
+    if (pwd.new_password !== pwd.confirm_password) return setPwdErr('Passwords do not match');
+
+    setSavingPwd(true);
+    try {
+      await changePassword({ current_password: pwd.current_password, new_password: pwd.new_password });
+      setPwdMsg('Password changed successfully');
+      setPwd({ current_password: '', new_password: '', confirm_password: '' });
+      setTimeout(() => setPwdMsg(''), 4000);
+    } catch (err) {
+      setPwdErr(err?.message || 'Failed to change password');
+    } finally {
+      setSavingPwd(false);
+    }
+  };
+
+  // ── Delete account ─────────────────────────────────────────────────────
+
+  const handleDeleteAccount = async () => {
+    setDeleteErr('');
+    if (!deletePassword) return setDeleteErr('Please enter your password to confirm');
+    setDeletingAcct(true);
+    try {
+      await deleteAccount({ password: deletePassword });
+      localStorage.removeItem('user_token');
+      navigate('/');
+    } catch (err) {
+      setDeleteErr(err?.message || 'Failed to delete account');
+      setDeletingAcct(false);
+    }
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────
+
+  const TABS = [
+    { id: 'notifications', icon: Bell,   label: 'Notifications' },
+    { id: 'privacy',       icon: Shield, label: 'Privacy'       },
+    { id: 'security',      icon: Lock,   label: 'Security'      },
   ];
 
-  const handleSettingChange = (category, field, value) => {
-    if (category) {
-      setSettings(prev => ({
-        ...prev,
-        [category]: {
-          ...prev[category],
-          [field]: value
-        }
-      }));
-    } else {
-      setSettings(prev => ({
-        ...prev,
-        [field]: value
-      }));
-    }
-  };
+  if (loading) return (
+    <div className="min-h-screen bg-gray-50">
+      <AgentNav />
+      <div className="flex flex-col items-center justify-center h-96">
+        <Loader2 className="w-10 h-10 text-amber-500 animate-spin mb-4" />
+        <p className="text-gray-500 text-sm">Loading settings…</p>
+      </div>
+    </div>
+  );
 
-  const validatePasswordChange = () => {
-    const newErrors = {};
-    
-    if (!settings.currentPassword) {
-      newErrors.currentPassword = 'Current password is required';
-    }
-    
-    if (!settings.newPassword) {
-      newErrors.newPassword = 'New password is required';
-    } else if (settings.newPassword.length < 8) {
-      newErrors.newPassword = 'Password must be at least 8 characters';
-    }
-    
-    if (!settings.confirmPassword) {
-      newErrors.confirmPassword = 'Please confirm your password';
-    } else if (settings.newPassword !== settings.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
-    }
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handlePasswordChange = async () => {
-    if (validatePasswordChange()) {
-      setIsSaving(true);
-      
-      // Simulate API call
-      setTimeout(() => {
-        setIsSaving(false);
-        setSuccessMessage('Password changed successfully!');
-        
-        // Clear password fields
-        setSettings(prev => ({
-          ...prev,
-          currentPassword: '',
-          newPassword: '',
-          confirmPassword: ''
-        }));
-        
-        setTimeout(() => setSuccessMessage(''), 3000);
-      }, 1500);
-    }
-  };
-
-  const handleSaveSettings = async () => {
-    setIsSaving(true);
-    
-    // Simulate API call
-    setTimeout(() => {
-      setIsSaving(false);
-      setSuccessMessage('Settings saved successfully!');
-      setTimeout(() => setSuccessMessage(''), 3000);
-    }, 1500);
-  };
-
-  const handleDeleteAccount = () => {
-    if (window.confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
-      // Handle account deletion
-      console.log('Delete account');
-    }
-  };
-
-  const renderTabContent = () => {
-    switch (activeTab) {
-      case 'account':
-        return (
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Information</h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Email Address
-                  </label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                    <input
-                      type="email"
-                      value={settings.email}
-                      onChange={(e) => handleSettingChange(null, 'email', e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Username
-                  </label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                    <input
-                      type="text"
-                      value={settings.username}
-                      onChange={(e) => handleSettingChange(null, 'username', e.target.value)}
-                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                  <div>
-                    <p className="font-medium text-gray-900">Two-Factor Authentication</p>
-                    <p className="text-sm text-gray-600">Add an extra layer of security to your account</p>
-                  </div>
-                  <button
-                    onClick={() => handleSettingChange(null, 'twoFactorAuth', !settings.twoFactorAuth)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      settings.twoFactorAuth ? 'bg-amber-600' : 'bg-gray-300'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        settings.twoFactorAuth ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 'notifications':
-        return (
-          <div className="space-y-6">
-            {/* Email Notifications */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <Mail className="w-5 h-5" />
-                Email Notifications
-              </h3>
-              
-              <div className="space-y-3">
-                {Object.entries({
-                  newLeads: 'New leads and inquiries',
-                  messages: 'New messages from clients',
-                  viewingRequests: 'Property viewing requests',
-                  propertyUpdates: 'Updates on your listings',
-                  weeklyReport: 'Weekly performance report',
-                  marketingEmails: 'Marketing and promotional emails'
-                }).map(([key, label]) => (
-                  <div key={key} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
-                    <span className="text-gray-900">{label}</span>
-                    <button
-                      onClick={() => handleSettingChange('emailNotifications', key, !settings.emailNotifications[key])}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                        settings.emailNotifications[key] ? 'bg-amber-600' : 'bg-gray-300'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          settings.emailNotifications[key] ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Push Notifications */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <Bell className="w-5 h-5" />
-                Push Notifications
-              </h3>
-              
-              <div className="space-y-3">
-                {Object.entries({
-                  newLeads: 'New leads and inquiries',
-                  messages: 'New messages from clients',
-                  viewingRequests: 'Property viewing requests',
-                  propertyUpdates: 'Updates on your listings'
-                }).map(([key, label]) => (
-                  <div key={key} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
-                    <span className="text-gray-900">{label}</span>
-                    <button
-                      onClick={() => handleSettingChange('pushNotifications', key, !settings.pushNotifications[key])}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                        settings.pushNotifications[key] ? 'bg-amber-600' : 'bg-gray-300'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          settings.pushNotifications[key] ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* SMS Notifications */}
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <Smartphone className="w-5 h-5" />
-                SMS Notifications
-              </h3>
-              
-              <div className="space-y-3">
-                {Object.entries({
-                  urgentLeads: 'Urgent lead notifications',
-                  viewingReminders: 'Viewing appointment reminders',
-                  systemAlerts: 'System alerts and updates'
-                }).map(([key, label]) => (
-                  <div key={key} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
-                    <span className="text-gray-900">{label}</span>
-                    <button
-                      onClick={() => handleSettingChange('smsNotifications', key, !settings.smsNotifications[key])}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                        settings.smsNotifications[key] ? 'bg-amber-600' : 'bg-gray-300'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          settings.smsNotifications[key] ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Auto Response */}
-            <div className="border-t border-gray-200 pt-6">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Auto-Response Message</h3>
-                  <p className="text-sm text-gray-600">Send automatic reply to new inquiries</p>
-                </div>
-                <button
-                  onClick={() => handleSettingChange(null, 'autoResponse', !settings.autoResponse)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    settings.autoResponse ? 'bg-amber-600' : 'bg-gray-300'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      settings.autoResponse ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-              
-              {settings.autoResponse && (
-                <textarea
-                  value={settings.autoResponseMessage}
-                  onChange={(e) => handleSettingChange(null, 'autoResponseMessage', e.target.value)}
-                  rows="3"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                  placeholder="Enter your auto-response message..."
-                />
-              )}
-            </div>
-          </div>
-        );
-
-      case 'privacy':
-        return (
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Profile Visibility</h3>
-              
-              <div className="space-y-3">
-                <label className="flex items-center p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="visibility"
-                    value="public"
-                    checked={settings.profileVisibility === 'public'}
-                    onChange={(e) => handleSettingChange(null, 'profileVisibility', e.target.value)}
-                    className="w-4 h-4 text-amber-600 focus:ring-amber-500"
-                  />
-                  <div className="ml-3">
-                    <p className="font-medium text-gray-900">Public</p>
-                    <p className="text-sm text-gray-600">Anyone can view your profile</p>
-                  </div>
-                </label>
-
-                <label className="flex items-center p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="visibility"
-                    value="verified-only"
-                    checked={settings.profileVisibility === 'verified-only'}
-                    onChange={(e) => handleSettingChange(null, 'profileVisibility', e.target.value)}
-                    className="w-4 h-4 text-amber-600 focus:ring-amber-500"
-                  />
-                  <div className="ml-3">
-                    <p className="font-medium text-gray-900">Verified Users Only</p>
-                    <p className="text-sm text-gray-600">Only verified users can view your profile</p>
-                  </div>
-                </label>
-
-                <label className="flex items-center p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="visibility"
-                    value="private"
-                    checked={settings.profileVisibility === 'private'}
-                    onChange={(e) => handleSettingChange(null, 'profileVisibility', e.target.value)}
-                    className="w-4 h-4 text-amber-600 focus:ring-amber-500"
-                  />
-                  <div className="ml-3">
-                    <p className="font-medium text-gray-900">Private</p>
-                    <p className="text-sm text-gray-600">Your profile is hidden from public</p>
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            <div className="border-t border-gray-200 pt-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information Display</h3>
-              
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
-                  <span className="text-gray-900">Show phone number on profile</span>
-                  <button
-                    onClick={() => handleSettingChange(null, 'showPhone', !settings.showPhone)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      settings.showPhone ? 'bg-amber-600' : 'bg-gray-300'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        settings.showPhone ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
-                  <span className="text-gray-900">Show email address on profile</span>
-                  <button
-                    onClick={() => handleSettingChange(null, 'showEmail', !settings.showEmail)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      settings.showEmail ? 'bg-amber-600' : 'bg-gray-300'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        settings.showEmail ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
-                  <span className="text-gray-900">Show WhatsApp number</span>
-                  <button
-                    onClick={() => handleSettingChange(null, 'showWhatsApp', !settings.showWhatsApp)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      settings.showWhatsApp ? 'bg-amber-600' : 'bg-gray-300'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        settings.showWhatsApp ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
-                  <span className="text-gray-900">Allow direct messages</span>
-                  <button
-                    onClick={() => handleSettingChange(null, 'allowMessages', !settings.allowMessages)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      settings.allowMessages ? 'bg-amber-600' : 'bg-gray-300'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        settings.allowMessages ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 'appearance':
-        return (
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Theme</h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <label className="flex flex-col items-center p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="theme"
-                    value="light"
-                    checked={settings.theme === 'light'}
-                    onChange={(e) => handleSettingChange(null, 'theme', e.target.value)}
-                    className="sr-only"
-                  />
-                  <Sun className={`w-8 h-8 mb-2 ${settings.theme === 'light' ? 'text-amber-600' : 'text-gray-400'}`} />
-                  <p className={`font-medium ${settings.theme === 'light' ? 'text-amber-600' : 'text-gray-900'}`}>Light</p>
-                </label>
-
-                <label className="flex flex-col items-center p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="theme"
-                    value="dark"
-                    checked={settings.theme === 'dark'}
-                    onChange={(e) => handleSettingChange(null, 'theme', e.target.value)}
-                    className="sr-only"
-                  />
-                  <Moon className={`w-8 h-8 mb-2 ${settings.theme === 'dark' ? 'text-amber-600' : 'text-gray-400'}`} />
-                  <p className={`font-medium ${settings.theme === 'dark' ? 'text-amber-600' : 'text-gray-900'}`}>Dark</p>
-                </label>
-
-                <label className="flex flex-col items-center p-4 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input
-                    type="radio"
-                    name="theme"
-                    value="auto"
-                    checked={settings.theme === 'auto'}
-                    onChange={(e) => handleSettingChange(null, 'theme', e.target.value)}
-                    className="sr-only"
-                  />
-                  <SettingsIcon className={`w-8 h-8 mb-2 ${settings.theme === 'auto' ? 'text-amber-600' : 'text-gray-400'}`} />
-                  <p className={`font-medium ${settings.theme === 'auto' ? 'text-amber-600' : 'text-gray-900'}`}>Auto</p>
-                </label>
-              </div>
-            </div>
-
-            <div className="border-t border-gray-200 pt-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Language</h3>
-              
-              <select
-                value={settings.language}
-                onChange={(e) => handleSettingChange(null, 'language', e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-              >
-                <option value="en">English</option>
-                <option value="fr">Français</option>
-                <option value="es">Español</option>
-              </select>
-            </div>
-          </div>
-        );
-
-      case 'security':
-        return (
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Change Password</h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Current Password
-                  </label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                    <input
-                      type={showCurrentPassword ? 'text' : 'password'}
-                      value={settings.currentPassword}
-                      onChange={(e) => handleSettingChange(null, 'currentPassword', e.target.value)}
-                      className={`w-full pl-10 pr-12 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent ${
-                        errors.currentPassword ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      {showCurrentPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                    </button>
-                  </div>
-                  {errors.currentPassword && <p className="text-red-500 text-sm mt-1">{errors.currentPassword}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    New Password
-                  </label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                    <input
-                      type={showNewPassword ? 'text' : 'password'}
-                      value={settings.newPassword}
-                      onChange={(e) => handleSettingChange(null, 'newPassword', e.target.value)}
-                      className={`w-full pl-10 pr-12 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent ${
-                        errors.newPassword ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowNewPassword(!showNewPassword)}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                    </button>
-                  </div>
-                  {errors.newPassword && <p className="text-red-500 text-sm mt-1">{errors.newPassword}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Confirm New Password
-                  </label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                    <input
-                      type={showConfirmPassword ? 'text' : 'password'}
-                      value={settings.confirmPassword}
-                      onChange={(e) => handleSettingChange(null, 'confirmPassword', e.target.value)}
-                      className={`w-full pl-10 pr-12 py-3 border rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent ${
-                        errors.confirmPassword ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                    </button>
-                  </div>
-                  {errors.confirmPassword && <p className="text-red-500 text-sm mt-1">{errors.confirmPassword}</p>}
-                </div>
-
-                <button
-                  onClick={handlePasswordChange}
-                  disabled={isSaving}
-                  className="w-full bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
-                >
-                  {isSaving ? 'Updating...' : 'Update Password'}
-                </button>
-              </div>
-            </div>
-
-            <div className="border-t border-gray-200 pt-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 text-red-600 flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5" />
-                Danger Zone
-              </h3>
-              
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <p className="text-sm text-red-800 mb-4">
-                  Once you delete your account, there is no going back. All your data, listings, and leads will be permanently deleted.
-                </p>
-                <button
-                  onClick={handleDeleteAccount}
-                  className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg font-semibold transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Delete Account
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
+  if (loadError) return (
+    <div className="min-h-screen bg-gray-50">
+      <AgentNav />
+      <div className="max-w-xl mx-auto px-4 py-16 text-center">
+        <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+        <p className="text-red-600 mb-4">{loadError}</p>
+        <button onClick={() => window.location.reload()}
+          className="px-5 py-2.5 bg-amber-600 text-white rounded-xl font-semibold">
+          Retry
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AgentNav unreadLeads={2} unreadNotifications={5} />
+      <AgentNav />
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-10">
+
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-          <p className="text-gray-600 mt-1">Manage your account settings and preferences</p>
+          <button onClick={() => navigate('/agent/home')}
+            className="flex items-center gap-2 text-gray-400 hover:text-gray-700 mb-4 text-sm transition-colors">
+            <ArrowLeft className="w-4 h-4" /> Back to Dashboard
+          </button>
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Settings</h1>
+          <p className="text-gray-400 mt-1 text-sm">Manage your account preferences</p>
         </div>
 
-        {/* Success Message */}
-        {successMessage && (
-          <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
-            <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
-            <p className="text-green-800 font-medium">{successMessage}</p>
-          </div>
-        )}
-
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          
-          {/* Sidebar Tabs */}
+
+          {/* Sidebar */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-2">
-              {tabs.map((tab) => {
-                const Icon = tab.icon;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-medium transition-colors ${
-                      activeTab === tab.id
-                        ? 'bg-amber-50 text-amber-600'
-                        : 'text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    <Icon className="w-5 h-5" />
-                    {tab.label}
-                  </button>
-                );
-              })}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-2">
+              {TABS.map(({ id, icon: Icon, label }) => (
+                <button key={id} onClick={() => setTab(id)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-sm transition-colors ${
+                    tab === id
+                      ? 'bg-amber-50 text-amber-700'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}>
+                  <Icon className="w-4 h-4 flex-shrink-0" />
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Content Area */}
+          {/* Content */}
           <div className="lg:col-span-3">
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              {renderTabContent()}
-              
-              {/* Save Button (except for security tab which has its own button) */}
-              {activeTab !== 'security' && (
-                <div className="mt-6 pt-6 border-t border-gray-200 flex justify-end">
-                  <button
-                    onClick={handleSaveSettings}
-                    disabled={isSaving}
-                    className={`flex items-center gap-2 px-8 py-3 rounded-lg font-semibold transition-colors ${
-                      isSaving
-                        ? 'bg-gray-400 cursor-not-allowed'
-                        : 'bg-amber-600 hover:bg-amber-700'
-                    } text-white`}
-                  >
-                    {isSaving ? (
-                      <>
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Save className="w-5 h-5" />
-                        Save Changes
-                      </>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 md:p-8">
+
+              {/* ── NOTIFICATIONS ────────────────────────────────────────── */}
+              {tab === 'notifications' && (
+                <div className="space-y-8">
+                  <Section
+                    title="Notification Preferences"
+                    subtitle="Choose which in-app notifications you receive. These control the alerts that appear in your notifications panel.">
+
+                    <div className="bg-gray-50 rounded-xl px-4 divide-y divide-gray-100">
+                      <ToggleRow
+                        label="New inquiry received"
+                        sublabel="When a client sends a message about one of your listings"
+                        checked={notifs.new_inquiry}
+                        onChange={v => setNotifs(p => ({ ...p, new_inquiry: v }))}
+                      />
+                      <ToggleRow
+                        label="Client replied to your message"
+                        sublabel="When a client responds in an active conversation"
+                        checked={notifs.inquiry_reply}
+                        onChange={v => setNotifs(p => ({ ...p, inquiry_reply: v }))}
+                      />
+                      <ToggleRow
+                        label="Listing status changed"
+                        sublabel="When admin approves, rejects or requests changes to a listing"
+                        checked={notifs.listing_status}
+                        onChange={v => setNotifs(p => ({ ...p, listing_status: v }))}
+                      />
+                    </div>
+                  </Section>
+
+                  {/* Save */}
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                    {notifMsg === 'saved' && (
+                      <span className="flex items-center gap-1.5 text-green-600 text-sm font-medium">
+                        <CheckCircle className="w-4 h-4" /> Saved
+                      </span>
                     )}
-                  </button>
+                    {notifMsg.startsWith('error:') && (
+                      <span className="text-red-500 text-sm">{notifMsg.slice(6)}</span>
+                    )}
+                    {!notifMsg && <span />}
+                    <button onClick={handleSaveNotifs} disabled={savingNotifs}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-semibold text-sm transition-colors disabled:opacity-60">
+                      {savingNotifs ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                      {savingNotifs ? 'Saving…' : 'Save Preferences'}
+                    </button>
+                  </div>
                 </div>
               )}
+
+              {/* ── PRIVACY ──────────────────────────────────────────────── */}
+              {tab === 'privacy' && (
+                <div className="space-y-8">
+                  <Section
+                    title="Contact Information Visibility"
+                    subtitle="Control what clients can see on your public profile page.">
+
+                    <div className="bg-gray-50 rounded-xl px-4 divide-y divide-gray-100">
+                      <ToggleRow
+                        label="Show phone number"
+                        sublabel="Clients can see and call your phone directly"
+                        checked={privacy.show_phone}
+                        onChange={v => setPrivacy(p => ({ ...p, show_phone: v }))}
+                      />
+                      <ToggleRow
+                        label="Show email address"
+                        sublabel="Your email is visible on your public profile"
+                        checked={privacy.show_email}
+                        onChange={v => setPrivacy(p => ({ ...p, show_email: v }))}
+                      />
+                      <ToggleRow
+                        label="Show WhatsApp number"
+                        sublabel="Clients see a WhatsApp link on your profile"
+                        checked={privacy.show_whatsapp}
+                        onChange={v => setPrivacy(p => ({ ...p, show_whatsapp: v }))}
+                      />
+                    </div>
+                  </Section>
+
+                  <Section
+                    title="Messaging"
+                    subtitle="Control how clients can contact you.">
+                    <div className="bg-gray-50 rounded-xl px-4">
+                      <ToggleRow
+                        label="Allow inquiry messages"
+                        sublabel="Clients can send you messages about your listings"
+                        checked={privacy.allow_messages}
+                        onChange={v => setPrivacy(p => ({ ...p, allow_messages: v }))}
+                      />
+                    </div>
+                    {!privacy.allow_messages && (
+                      <div className="flex items-start gap-2 bg-amber-50 border border-amber-100 rounded-xl p-3 text-sm text-amber-800">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                        Disabling messages will hide the contact form from your profile and listing pages. Clients won't be able to reach you directly.
+                      </div>
+                    )}
+                  </Section>
+
+                  {/* Save */}
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                    {privacyMsg === 'saved' && (
+                      <span className="flex items-center gap-1.5 text-green-600 text-sm font-medium">
+                        <CheckCircle className="w-4 h-4" /> Saved
+                      </span>
+                    )}
+                    {privacyMsg.startsWith('error:') && (
+                      <span className="text-red-500 text-sm">{privacyMsg.slice(6)}</span>
+                    )}
+                    {!privacyMsg && <span />}
+                    <button onClick={handleSavePrivacy} disabled={savingPrivacy}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-semibold text-sm transition-colors disabled:opacity-60">
+                      {savingPrivacy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                      {savingPrivacy ? 'Saving…' : 'Save Preferences'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── SECURITY ─────────────────────────────────────────────── */}
+              {tab === 'security' && (
+                <div className="space-y-10">
+
+                  {/* Change password */}
+                  <Section
+                    title="Change Password"
+                    subtitle="Use a strong password of at least 8 characters.">
+
+                    <div className="space-y-4">
+                      {/* Current */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Current Password</label>
+                        <div className="relative">
+                          <input
+                            type={showCurrentPwd ? 'text' : 'password'}
+                            value={pwd.current_password}
+                            onChange={e => setPwd(p => ({ ...p, current_password: e.target.value }))}
+                            className={`${fc(pwdErr && !pwd.current_password)} pr-11`}
+                            placeholder="Enter current password"
+                          />
+                          <button type="button"
+                            onClick={() => setShowCurrentPwd(v => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                            {showCurrentPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* New */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">New Password</label>
+                        <div className="relative">
+                          <input
+                            type={showNewPwd ? 'text' : 'password'}
+                            value={pwd.new_password}
+                            onChange={e => setPwd(p => ({ ...p, new_password: e.target.value }))}
+                            className={`${fc()} pr-11`}
+                            placeholder="At least 8 characters"
+                          />
+                          <button type="button"
+                            onClick={() => setShowNewPwd(v => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                            {showNewPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                        {/* Strength indicator */}
+                        {pwd.new_password.length > 0 && (
+                          <div className="mt-2 flex gap-1">
+                            {[1,2,3,4].map(i => (
+                              <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${
+                                pwd.new_password.length >= i * 3
+                                  ? i <= 1 ? 'bg-red-400'
+                                  : i <= 2 ? 'bg-amber-400'
+                                  : i <= 3 ? 'bg-yellow-400'
+                                  : 'bg-green-500'
+                                  : 'bg-gray-200'
+                              }`} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Confirm */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Confirm New Password</label>
+                        <div className="relative">
+                          <input
+                            type={showConfirmPwd ? 'text' : 'password'}
+                            value={pwd.confirm_password}
+                            onChange={e => setPwd(p => ({ ...p, confirm_password: e.target.value }))}
+                            className={`${fc(pwd.confirm_password && pwd.confirm_password !== pwd.new_password)} pr-11`}
+                            placeholder="Repeat new password"
+                          />
+                          <button type="button"
+                            onClick={() => setShowConfirmPwd(v => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                            {showConfirmPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                          {pwd.confirm_password && pwd.confirm_password === pwd.new_password && (
+                            <Check className="absolute right-10 top-1/2 -translate-y-1/2 w-4 h-4 text-green-500" />
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Error / success */}
+                      {pwdErr && (
+                        <p className="flex items-center gap-1.5 text-red-500 text-sm">
+                          <AlertCircle className="w-4 h-4 flex-shrink-0" />{pwdErr}
+                        </p>
+                      )}
+                      {pwdMsg && (
+                        <p className="flex items-center gap-1.5 text-green-600 text-sm font-medium">
+                          <CheckCircle className="w-4 h-4" />{pwdMsg}
+                        </p>
+                      )}
+
+                      <button onClick={handleChangePassword} disabled={savingPwd}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-semibold text-sm transition-colors disabled:opacity-60">
+                        {savingPwd ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+                        {savingPwd ? 'Updating…' : 'Update Password'}
+                      </button>
+                    </div>
+                  </Section>
+
+                  {/* Danger zone */}
+                  <div className="border-t-2 border-red-100 pt-8">
+                    <div className="flex items-center gap-2 mb-1">
+                      <AlertTriangle className="w-5 h-5 text-red-500" />
+                      <h3 className="text-base font-bold text-red-600">Danger Zone</h3>
+                    </div>
+                    <p className="text-sm text-gray-500 mb-4">
+                      Permanently delete your account. All listings, leads, and data will be removed and cannot be recovered.
+                    </p>
+
+                    {!showDeleteConfirm ? (
+                      <button onClick={() => setShowDeleteConfirm(true)}
+                        className="flex items-center gap-2 px-4 py-2.5 border-2 border-red-300 text-red-600 hover:bg-red-50 rounded-xl font-semibold text-sm transition-colors">
+                        <Trash2 className="w-4 h-4" /> Delete My Account
+                      </button>
+                    ) : (
+                      <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-3">
+                        <p className="text-sm font-semibold text-red-800">
+                          Enter your password to confirm deletion:
+                        </p>
+                        <div className="relative">
+                          <input
+                            type={showDeletePwd ? 'text' : 'password'}
+                            value={deletePassword}
+                            onChange={e => setDeletePassword(e.target.value)}
+                            placeholder="Your current password"
+                            className="w-full px-4 py-2.5 border border-red-300 bg-white rounded-xl text-sm focus:ring-2 focus:ring-red-400 focus:border-transparent pr-11"
+                          />
+                          <button type="button" onClick={() => setShowDeletePwd(v => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                            {showDeletePwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                        {deleteErr && (
+                          <p className="text-red-600 text-xs flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />{deleteErr}
+                          </p>
+                        )}
+                        <div className="flex gap-2">
+                          <button onClick={handleDeleteAccount} disabled={deletingAcct}
+                            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold text-sm transition-colors disabled:opacity-60">
+                            {deletingAcct ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                            {deletingAcct ? 'Deleting…' : 'Confirm Delete'}
+                          </button>
+                          <button onClick={() => { setShowDeleteConfirm(false); setDeletePassword(''); setDeleteErr(''); }}
+                            className="px-4 py-2 border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-xl font-semibold text-sm transition-colors">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
         </div>
       </div>
     </div>
   );
-};
-
-export default AgentSettings;
+}

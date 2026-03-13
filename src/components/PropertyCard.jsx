@@ -39,23 +39,6 @@ const PropertyCard = ({ listing, onFavorite, onShare, onClick }) => {
             {listing?.listingType || listing?.type || 'For Sale'}
           </span>
         </div>
-        
-        <div className="absolute top-4 right-4 flex gap-2">
-          <button
-            onClick={handleFavoriteClick}
-            className="w-10 h-10 bg-white rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors shadow-lg backdrop-blur-sm"
-          >
-            <Heart
-              className={`w-5 h-5 ${isFavorited ? 'fill-red-500 text-red-500' : 'text-gray-600'}`}
-            />
-          </button>
-          <button
-            onClick={handleShareClick}
-            className="w-10 h-10 bg-white rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors shadow-lg backdrop-blur-sm"
-          >
-            <Share2 className="w-4 h-4 text-gray-600" />
-          </button>
-        </div>
       </div>
       
       <div className="p-5">

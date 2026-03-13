@@ -1,83 +1,60 @@
 import { useState } from 'react';
-import { 
-  Mail, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  ArrowRight, 
+import {
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  ArrowRight,
   ArrowLeft,
-  Loader2, 
-  Building2, 
+  Loader2,
+  Building2,
   User,
   Phone,
-  MapPin,
-  Briefcase,
-  Award,
-  Upload,
-  FileText,
+  CreditCard,
   CheckCircle2,
   Home,
   Users,
   Landmark,
-  CreditCard,
-  MapPinned,
-  Building,
-  FileCheck,
-  Scale,
-  Shield
+  Camera,
 } from 'lucide-react';
 import Alert from '../../components/Alert';
+import { useAgentAuth } from '../../context/AgentAuthContext';
+
+const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 const ProAccount = () => {
+  const { login, updateAgent } = useAgentAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
-  // Form data with Cameroon-specific fields
   const [formData, setFormData] = useState({
     // Step 1: Account Setup
     email: '',
     password: '',
     confirmPassword: '',
-    
+
     // Step 2: Professional Type
     professionalType: '',
-    
-    // Step 3: Personal Information
+
+    // Step 3: Personal & Business Info
     firstName: '',
     lastName: '',
     phoneNumber: '',
+    agencyName: '',
+
+    // Step 4: Identity Documents
     nationalId: '',
-    region: '',
-    city: '',
-    
-    // Step 4: Business Information
-    businessName: '',
-    taxId: '', // NUI - Tax Identification Number (CRITICAL for Cameroon)
-    licenseNumber: '',
-    yearsExperience: '',
-    officeAddress: '',
-    bio: '',
-    
-    // Step 5: Legal & Property Documents
     idDocument: null,
-    licenseDocument: null,
-    landTitleCertificate: null, // Titre Foncier (MOST IMPORTANT)
-    surveyPlan: null,
-    proofNoEncumbrances: null,
-    businessRegistration: null,
-    
-    // Step 6: Professional References
-    notaryName: '',
-    notaryContact: '',
-    lawyerName: '',
-    lawyerContact: '',
-    
-    termsAccepted: false
+    selfieDocument: null,
+
+    // Step 5: Terms
+    termsAccepted: false,
   });
 
-  const totalSteps = 6;
+  const totalSteps = 5;
 
   const showAlert = (message, type = 'info') => {
     setAlert({ message, type });
@@ -103,71 +80,122 @@ const ProAccount = () => {
           showAlert('Please fill in all fields', 'error');
           return false;
         }
-        if (formData.password !== formData.confirmPassword) {
-          showAlert('Passwords do not match', 'error');
+        if (!(/\S+@\S+\.\S+/).test(formData.email)) {
+          showAlert('Please enter a valid email address', 'error');
           return false;
         }
         if (formData.password.length < 8) {
           showAlert('Password must be at least 8 characters', 'error');
           return false;
         }
+        if (formData.password !== formData.confirmPassword) {
+          showAlert('Passwords do not match', 'error');
+          return false;
+        }
         return true;
-        
+
       case 2:
         if (!formData.professionalType) {
           showAlert('Please select your professional type', 'error');
           return false;
         }
         return true;
-        
+
       case 3:
-        if (!formData.firstName || !formData.lastName || !formData.phoneNumber || 
-            !formData.nationalId || !formData.region || !formData.city) {
+        if (!formData.firstName || !formData.lastName || !formData.phoneNumber) {
           showAlert('Please fill in all required fields', 'error');
           return false;
         }
         return true;
-        
+
       case 4:
-        if (!formData.businessName || !formData.taxId || !formData.officeAddress || 
-            !formData.yearsExperience) {
-          showAlert('Please fill in all required fields', 'error');
+        if (!formData.nationalId) {
+          showAlert('Please enter your National ID number', 'error');
+          return false;
+        }
+        if (!formData.idDocument) {
+          showAlert('Please upload your government ID document', 'error');
           return false;
         }
         return true;
-        
+
       case 5:
-        if (!formData.idDocument || !formData.landTitleCertificate) {
-          showAlert('Please upload required documents (ID and Land Title)', 'error');
-          return false;
-        }
-        if (formData.professionalType === 'agent' && !formData.licenseDocument) {
-          showAlert('Real Estate Agents must upload professional license', 'error');
-          return false;
-        }
-        return true;
-        
-      case 6:
         if (!formData.termsAccepted) {
-          showAlert('Please accept terms and conditions', 'error');
+          showAlert('Please accept the terms and conditions', 'error');
           return false;
         }
         return true;
-        
+
       default:
         return true;
     }
   };
 
-  const handleNext = () => {
-    if (validateStep()) {
-      if (currentStep < totalSteps) {
-        setCurrentStep(currentStep + 1);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      } else {
-        handleSubmit();
+  const handleFinalSubmit = async () => {
+    setLoading(true);
+    try {
+      // 1. Register account
+      const regRes = await fetch(`${BASE_URL}/agent/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name:        `${formData.firstName} ${formData.lastName}`.trim(),
+          email:       formData.email.trim(),
+          phone:       '+237' + formData.phoneNumber.trim(),
+          password:    formData.password,
+          national_id: formData.nationalId.trim(),
+          agency_name: formData.agencyName.trim() || null,
+          agent_type:  formData.professionalType,
+        }),
+      });
+      const regData = await regRes.json();
+      if (!regRes.ok) throw new Error(regData.error || 'Registration failed');
+
+      const token = regData.token;
+      localStorage.setItem('user_token', JSON.stringify(regData));
+
+      // 2. Upload ID document
+      if (formData.idDocument) {
+        const fd = new FormData();
+        fd.append('document', formData.idDocument);
+        fd.append('type', 'national_id');
+        fd.append('national_id_number', formData.nationalId.trim());
+        await fetch(`${BASE_URL}/agent/auth/upload-id`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: fd,
+        });
       }
+
+      // 3. Upload selfie if provided
+      if (formData.selfieDocument) {
+        const fd = new FormData();
+        fd.append('document', formData.selfieDocument);
+        fd.append('type', 'selfie');
+        await fetch(`${BASE_URL}/agent/auth/upload-id`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: fd,
+        });
+      }
+
+      setSubmitted(true);
+      showAlert("Account created! We'll verify your ID within 24 hours.", 'success');
+    } catch (err) {
+      showAlert(err.message || 'Something went wrong. Please try again.', 'error');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const handleNext = () => {
+    if (!validateStep()) return;
+    if (currentStep === totalSteps) {
+      handleFinalSubmit();
+      return;
+    }
+    setCurrentStep(s => s + 1);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleBack = () => {
@@ -177,81 +205,76 @@ const ProAccount = () => {
     }
   };
 
-  const handleSubmit = async () => {
-    setLoading(true);
-    
-    // Simulate API call
-    setTimeout(() => {
-      showAlert('Professional account submitted! Our team will verify your documents within 1-3 business days.', 'success');
-      setLoading(false);
-    }, 2000);
-  };
-
   const getPasswordStrength = () => {
     const password = formData.password;
     if (!password) return { strength: 0, label: '', color: '' };
-    
     let strength = 0;
     if (password.length >= 8) strength++;
     if (/[a-z]/.test(password) && /[A-Z]/.test(password)) strength++;
     if (/[0-9]/.test(password)) strength++;
     if (/[^a-zA-Z0-9]/.test(password)) strength++;
-    
     const labels = ['Weak', 'Fair', 'Good', 'Strong'];
     const colors = ['bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-green-500'];
-    
     return {
-      strength: strength,
+      strength,
       label: labels[strength - 1] || 'Weak',
-      color: colors[strength - 1] || 'bg-red-500'
+      color: colors[strength - 1] || 'bg-red-500',
     };
   };
 
   const professionalTypes = [
-    {
-      id: 'landlord',
-      name: 'Landlord',
-      icon: Home,
-      description: 'Property owner renting properties'
-    },
-    {
-      id: 'agent',
-      name: 'Real Estate Agent',
-      icon: Users,
-      description: 'Professional helping buy/sell properties'
-    },
-    {
-      id: 'landSeller',
-      name: 'Land Seller',
-      icon: Landmark,
-      description: 'Selling land or vacant properties'
-    }
+    { id: 'agent',      name: 'Real Estate Agent', icon: Users,    description: 'Professional helping buy/sell/rent properties' },
+    { id: 'landlord',   name: 'Landlord',           icon: Home,     description: 'Property owner listing for rent or sale'       },
+    { id: 'landSeller', name: 'Land Seller',        icon: Landmark, description: 'Selling plots or undeveloped land'             },
   ];
 
-  const cameroonRegions = [
-    'Adamawa', 'Centre', 'East', 'Far North', 'Littoral', 
-    'North', 'Northwest', 'West', 'South', 'Southwest'
+  const stepLabels = [
+    'Create your account',
+    'Select professional type',
+    'Personal information',
+    'Identity documents',
+    'Review & submit',
   ];
 
   const passwordStrength = getPasswordStrength();
 
+  // ── Success screen ──────────────────────────────────────────────────────────
+  if (submitted) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50 flex items-center justify-center p-6">
+        <div className="bg-white p-8 sm:p-10 max-w-md w-full text-center">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle2 className="w-8 h-8 text-green-500" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Account created!</h2>
+          <p className="text-gray-500 text-sm leading-relaxed">
+            We're reviewing your ID document. You'll receive an email once your account is verified — usually within 24 hours.
+          </p>
+          <a
+            href="/agent/login"
+            className="inline-block mt-6 px-8 py-3 bg-amber-600 text-white rounded-full font-bold text-sm hover:bg-amber-700 transition-colors"
+          >
+            Go to Login
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50">
-      {/* Alert */}
       {alert && (
-        <Alert 
-          message={alert.message} 
-          type={alert.type} 
-          onClose={() => setAlert(null)} 
+        <Alert
+          message={alert.message}
+          type={alert.type}
+          onClose={() => setAlert(null)}
         />
       )}
 
-      {/* Mobile-optimized container */}
       <div className="w-full min-h-screen px-4 py-6 sm:px-6 sm:py-8 md:px-8 md:py-12">
-        
-        {/* Logo - Mobile optimized */}
+
+        {/* Header */}
         <div className="text-center mb-6 sm:mb-8">
-          
           <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 mb-1 sm:mb-2">
             Professional Account
           </h1>
@@ -260,42 +283,34 @@ const ProAccount = () => {
           </p>
         </div>
 
-        {/* Mobile-friendly Progress Bar */}
+        {/* Step progress */}
         <div className="mb-6 sm:mb-8">
-          {/* Progress dots for mobile */}
           <div className="flex items-center justify-center gap-2 mb-3">
-            {[1, 2, 3, 4, 5, 6].map((step) => (
+            {[1, 2, 3, 4, 5].map((step) => (
               <div
                 key={step}
                 className={`
                   transition-all duration-300
-                  ${currentStep >= step 
-                    ? 'w-8 h-2 bg-amber-600 rounded-full' 
+                  ${currentStep >= step
+                    ? 'w-8 h-2 bg-amber-600 rounded-full'
                     : 'w-2 h-2 bg-gray-300 rounded-full'
                   }
                 `}
               />
             ))}
           </div>
-          
-          {/* Step indicator text */}
           <p className="text-center text-xs sm:text-sm font-semibold text-gray-700">
             Step {currentStep} of {totalSteps}
           </p>
           <p className="text-center text-xs text-gray-500 mt-1">
-            {currentStep === 1 && 'Create your account'}
-            {currentStep === 2 && 'Select professional type'}
-            {currentStep === 3 && 'Personal information'}
-            {currentStep === 4 && 'Business details'}
-            {currentStep === 5 && 'Upload documents'}
-            {currentStep === 6 && 'Professional references'}
+            {stepLabels[currentStep - 1]}
           </p>
         </div>
 
-        {/* Form Container - Mobile optimized */}
-        <div className="bg-white  p-4 sm:p-6 md:p-8 mb-4 sm:mb-6 max-w-2xl mx-auto">
-          
-          {/* Step 1: Account Setup */}
+        {/* Card */}
+        <div className="bg-white p-4 sm:p-6 md:p-8 mb-4 sm:mb-6 max-w-2xl mx-auto">
+
+          {/* ── Step 1: Account Setup ── */}
           {currentStep === 1 && (
             <div className="space-y-4 sm:space-y-5">
               <div className="mb-4 sm:mb-6">
@@ -307,7 +322,6 @@ const ProAccount = () => {
                 </p>
               </div>
 
-              {/* Email */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Email Address *
@@ -324,7 +338,6 @@ const ProAccount = () => {
                 </div>
               </div>
 
-              {/* Password */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Password *
@@ -346,8 +359,6 @@ const ProAccount = () => {
                     {showPassword ? <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Eye className="w-4 h-4 sm:w-5 sm:h-5" />}
                   </button>
                 </div>
-                
-                {/* Password Strength */}
                 {formData.password && (
                   <div className="mt-2">
                     <div className="flex gap-1 mb-1">
@@ -369,7 +380,6 @@ const ProAccount = () => {
                 )}
               </div>
 
-              {/* Confirm Password */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Confirm Password *
@@ -391,7 +401,7 @@ const ProAccount = () => {
             </div>
           )}
 
-          {/* Step 2: Professional Type */}
+          {/* ── Step 2: Professional Type ── */}
           {currentStep === 2 && (
             <div className="space-y-4 sm:space-y-5">
               <div className="mb-4 sm:mb-6">
@@ -455,7 +465,7 @@ const ProAccount = () => {
             </div>
           )}
 
-          {/* Step 3: Personal Information */}
+          {/* ── Step 3: Personal & Business Info ── */}
           {currentStep === 3 && (
             <div className="space-y-4 sm:space-y-5">
               <div className="mb-4 sm:mb-6">
@@ -467,7 +477,6 @@ const ProAccount = () => {
                 </p>
               </div>
 
-              {/* First and Last Name */}
               <div className="grid grid-cols-2 gap-3 sm:gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -481,7 +490,6 @@ const ProAccount = () => {
                     className="w-full px-3 sm:px-4 py-3 sm:py-4 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900"
                   />
                 </div>
-
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Last Name *
@@ -496,24 +504,64 @@ const ProAccount = () => {
                 </div>
               </div>
 
-              {/* Phone Number */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Phone Number *
                 </label>
                 <div className="relative">
                   <Phone className="absolute left-3 sm:left-4 top-3 sm:top-4 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
+                  <div className="flex items-center w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-3 sm:py-4 border-2 border-gray-200 rounded-xl focus-within:border-amber-600 transition-colors">
+                    <span className="text-base text-gray-400 font-medium pr-1 select-none whitespace-nowrap">+237</span>
+                    <input
+                      type="tel"
+                      inputMode="numeric"
+                      value={formData.phoneNumber}
+                      onChange={(e) => updateFormData('phoneNumber', e.target.value.replace(/\D/g, '').slice(0, 9))}
+                      placeholder="6XX XXX XXX"
+                      className="flex-1 bg-transparent text-base text-gray-900 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Agency / Business Name
+                  <span className="ml-1 text-xs font-normal text-gray-400">(Optional)</span>
+                </label>
+                <div className="relative">
+                  <Building2 className="absolute left-3 sm:left-4 top-3 sm:top-4 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
                   <input
-                    type="tel"
-                    value={formData.phoneNumber}
-                    onChange={(e) => updateFormData('phoneNumber', e.target.value)}
-                    placeholder="+237 6XX XXX XXX"
+                    type="text"
+                    value={formData.agencyName}
+                    onChange={(e) => updateFormData('agencyName', e.target.value)}
+                    placeholder="e.g. Mbarga Immobilier"
                     className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-3 sm:py-4 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900"
                   />
                 </div>
               </div>
+            </div>
+          )}
 
-              {/* National ID */}
+          {/* ── Step 4: Identity Documents ── */}
+          {currentStep === 4 && (
+            <div className="space-y-4 sm:space-y-5">
+              <div className="mb-4 sm:mb-6">
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-1 sm:mb-2">
+                  Identity documents
+                </h2>
+                <p className="text-sm sm:text-base text-gray-600">
+                  Required to verify your account
+                </p>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 sm:p-4">
+                <p className="text-xs sm:text-sm text-blue-800">
+                  <strong>Why we need this:</strong> Your ID is used solely to confirm your identity.
+                  It is encrypted and never shared with third parties.
+                </p>
+              </div>
+
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   National ID Number *
@@ -524,341 +572,77 @@ const ProAccount = () => {
                     type="text"
                     value={formData.nationalId}
                     onChange={(e) => updateFormData('nationalId', e.target.value)}
-                    placeholder="Enter your National ID number"
+                    placeholder="CNI / Passport number"
                     className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-3 sm:py-4 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900"
                   />
                 </div>
               </div>
 
-              {/* Region and City */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Region *
-                  </label>
-                  <div className="relative">
-                    <MapPinned className="absolute left-3 sm:left-4 top-3 sm:top-4 w-4 h-4 sm:w-5 sm:h-5 text-gray-400 pointer-events-none" />
-                    <select
-                      value={formData.region}
-                      onChange={(e) => updateFormData('region', e.target.value)}
-                      className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-3 sm:py-4 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900 bg-white appearance-none"
-                    >
-                      <option value="">Select region</option>
-                      {cameroonRegions.map(region => (
-                        <option key={region} value={region}>{region}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    City/Town *
-                  </label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 sm:left-4 top-3 sm:top-4 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
-                    <input
-                      type="text"
-                      value={formData.city}
-                      onChange={(e) => updateFormData('city', e.target.value)}
-                      placeholder="e.g., Douala"
-                      className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-3 sm:py-4 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Step 4: Business Information */}
-          {currentStep === 4 && (
-            <div className="space-y-4 sm:space-y-5">
-              <div className="mb-4 sm:mb-6">
-                <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-1 sm:mb-2">
-                  Business details
-                </h2>
-                <p className="text-sm sm:text-base text-gray-600">
-                  Your professional information
-                </p>
-              </div>
-
-              {/* Business Name */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Business Name *
-                </label>
-                <div className="relative">
-                  <Briefcase className="absolute left-3 sm:left-4 top-3 sm:top-4 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    value={formData.businessName}
-                    onChange={(e) => updateFormData('businessName', e.target.value)}
-                    placeholder="Your business name"
-                    className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-3 sm:py-4 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900"
-                  />
-                </div>
-              </div>
-
-              {/* Tax ID (NUI) - CRITICAL */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Tax ID (NUI) * <span className="text-xs font-normal text-amber-600">Required by Cameroon law</span>
-                </label>
-                <div className="relative">
-                  <Shield className="absolute left-3 sm:left-4 top-3 sm:top-4 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    value={formData.taxId}
-                    onChange={(e) => updateFormData('taxId', e.target.value)}
-                    placeholder="Enter your NUI number"
-                    className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-3 sm:py-4 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900"
-                  />
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Tax Identification Number (NUI) from Cameroon tax authorities
-                </p>
-              </div>
-
-              {/* Office Address */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Office Address *
-                </label>
-                <div className="relative">
-                  <Building className="absolute left-3 sm:left-4 top-3 sm:top-4 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
-                  <textarea
-                    value={formData.officeAddress}
-                    onChange={(e) => updateFormData('officeAddress', e.target.value)}
-                    placeholder="Complete office address with street, quartier, city"
-                    rows="3"
-                    className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-3 sm:py-4 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900 resize-none"
-                  />
-                </div>
-              </div>
-
-              {/* License Number and Experience */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    License {formData.professionalType === 'agent' ? '*' : '(Optional)'}
-                  </label>
-                  <div className="relative">
-                    <Award className="absolute left-3 sm:left-4 top-3 sm:top-4 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
-                    <input
-                      type="text"
-                      value={formData.licenseNumber}
-                      onChange={(e) => updateFormData('licenseNumber', e.target.value)}
-                      placeholder="License #"
-                      className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-3 sm:py-4 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Experience *
-                  </label>
-                  <select
-                    value={formData.yearsExperience}
-                    onChange={(e) => updateFormData('yearsExperience', e.target.value)}
-                    className="w-full px-3 sm:px-4 py-3 sm:py-4 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900 bg-white"
-                  >
-                    <option value="">Select</option>
-                    <option value="0-1">{"< 1 year"}</option>
-                    <option value="1-3">1-3 years</option>
-                    <option value="3-5">3-5 years</option>
-                    <option value="5-10">5-10 years</option>
-                    <option value="10+">10+ years</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Bio */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Bio (Optional)
-                </label>
-                <textarea
-                  value={formData.bio}
-                  onChange={(e) => updateFormData('bio', e.target.value)}
-                  placeholder="Brief description of your experience..."
-                  rows="3"
-                  maxLength="500"
-                  className="w-full px-3 sm:px-4 py-3 sm:py-4 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900 resize-none"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  {formData.bio.length}/500 characters
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Step 5: Documents */}
-          {currentStep === 5 && (
-            <div className="space-y-4 sm:space-y-5">
-              <div className="mb-4 sm:mb-6">
-                <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-1 sm:mb-2">
-                  Upload documents
-                </h2>
-                <p className="text-sm sm:text-base text-gray-600">
-                  Required for verification
-                </p>
-              </div>
-
-              {/* Alert about verification */}
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 sm:p-4 mb-4">
-                <p className="text-xs sm:text-sm text-blue-800">
-                  <strong>Important:</strong> All documents will be verified with MINDCAF registry. 
-                  Ensure your Land Title Certificate is valid and free from encumbrances.
-                </p>
-              </div>
-
-              {/* ID Document */}
               <FileUploadField
                 id="idDocument"
                 label="Government ID *"
-                description="Passport, Driver's License, or National ID"
+                description="Passport, Driver's License, or National ID (CNI)"
                 file={formData.idDocument}
                 onChange={(file) => handleFileUpload('idDocument', file)}
                 icon={CreditCard}
               />
 
-              {/* Land Title Certificate - MOST IMPORTANT */}
               <FileUploadField
-                id="landTitleCertificate"
-                label="Land Title Certificate (Titre Foncier) *"
-                description="Official land title from MINDCAF"
-                file={formData.landTitleCertificate}
-                onChange={(file) => handleFileUpload('landTitleCertificate', file)}
-                icon={FileCheck}
-                important
-              />
-
-              {/* Survey Plan */}
-              <FileUploadField
-                id="surveyPlan"
-                label="Survey Plan (Optional)"
-                description="Property boundary survey"
-                file={formData.surveyPlan}
-                onChange={(file) => handleFileUpload('surveyPlan', file)}
-                icon={MapPinned}
-              />
-
-              {/* Proof of No Encumbrances */}
-              <FileUploadField
-                id="proofNoEncumbrances"
-                label="Proof of No Encumbrances (Recommended)"
-                description="Certificate showing no mortgages/liens"
-                file={formData.proofNoEncumbrances}
-                onChange={(file) => handleFileUpload('proofNoEncumbrances', file)}
-                icon={Scale}
-              />
-
-              {/* License (for agents) */}
-              {formData.professionalType === 'agent' && (
-                <FileUploadField
-                  id="licenseDocument"
-                  label="Professional License *"
-                  description="Real estate agent license"
-                  file={formData.licenseDocument}
-                  onChange={(file) => handleFileUpload('licenseDocument', file)}
-                  icon={Award}
-                />
-              )}
-
-              {/* Business Registration */}
-              <FileUploadField
-                id="businessRegistration"
-                label="Business Registration (Optional)"
-                description="Business certificate or Tax ID document"
-                file={formData.businessRegistration}
-                onChange={(file) => handleFileUpload('businessRegistration', file)}
-                icon={Building2}
+                id="selfieDocument"
+                label="Selfie holding your ID"
+                description="Photo of you holding your ID — speeds up verification"
+                file={formData.selfieDocument}
+                onChange={(file) => handleFileUpload('selfieDocument', file)}
+                icon={Camera}
               />
             </div>
           )}
 
-          {/* Step 6: Professional References */}
-          {currentStep === 6 && (
+          {/* ── Step 5: Review & Terms ── */}
+          {currentStep === 5 && (
             <div className="space-y-4 sm:space-y-5">
               <div className="mb-4 sm:mb-6">
                 <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-1 sm:mb-2">
-                  Professional references
+                  Review & submit
                 </h2>
                 <p className="text-sm sm:text-base text-gray-600">
-                  Optional but recommended for faster verification
+                  Check your details before submitting
                 </p>
               </div>
 
-              {/* Notary Reference */}
-              <div className="bg-gray-50 rounded-xl p-4 sm:p-5 space-y-3 sm:space-y-4">
-                <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                  <Scale className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600" />
-                  Notary Reference (Optional)
-                </h3>
-                
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Notary Name
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.notaryName}
-                    onChange={(e) => updateFormData('notaryName', e.target.value)}
-                    placeholder="Full name of notary"
-                    className="w-full px-3 sm:px-4 py-3 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900 bg-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Notary Contact
-                  </label>
-                  <input
-                    type="tel"
-                    value={formData.notaryContact}
-                    onChange={(e) => updateFormData('notaryContact', e.target.value)}
-                    placeholder="+237 6XX XXX XXX"
-                    className="w-full px-3 sm:px-4 py-3 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900 bg-white"
-                  />
-                </div>
+              {/* Summary */}
+              <div className="bg-gray-50 rounded-xl p-4 sm:p-5 space-y-3">
+                {[
+                  ['Email',        formData.email],
+                  ['Name',         `${formData.firstName} ${formData.lastName}`.trim()],
+                  ['Phone',        formData.phoneNumber],
+                  ['Type',         professionalTypes.find(t => t.id === formData.professionalType)?.name || '—'],
+                  ['Agency',       formData.agencyName || '—'],
+                  ['National ID',  formData.nationalId],
+                  ['ID Document',  formData.idDocument?.name || '—'],
+                  ['Selfie',       formData.selfieDocument?.name || 'Not provided'],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex justify-between gap-4 text-sm">
+                    <span className="text-gray-500 flex-shrink-0">{label}</span>
+                    <span className="font-semibold text-gray-900 text-right truncate">{value}</span>
+                  </div>
+                ))}
               </div>
 
-              {/* Lawyer Reference */}
-              <div className="bg-gray-50 rounded-xl p-4 sm:p-5 space-y-3 sm:space-y-4">
-                <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                  <Briefcase className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600" />
-                  Lawyer Reference (Optional)
-                </h3>
-                
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Lawyer Name
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.lawyerName}
-                    onChange={(e) => updateFormData('lawyerName', e.target.value)}
-                    placeholder="Full name of lawyer"
-                    className="w-full px-3 sm:px-4 py-3 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900 bg-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Lawyer Contact
-                  </label>
-                  <input
-                    type="tel"
-                    value={formData.lawyerContact}
-                    onChange={(e) => updateFormData('lawyerContact', e.target.value)}
-                    placeholder="+237 6XX XXX XXX"
-                    className="w-full px-3 sm:px-4 py-3 text-base border-2 border-gray-200 rounded-xl focus:border-amber-600 focus:outline-none transition-colors text-gray-900 bg-white"
-                  />
-                </div>
+              {/* What happens next */}
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 sm:p-5">
+                <h4 className="font-bold text-green-900 mb-2 flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5" />
+                  What happens next?
+                </h4>
+                <ul className="text-xs sm:text-sm text-green-800 space-y-1 ml-7">
+                  <li>• Your National ID is reviewed within 24 hours</li>
+                  <li>• Once verified, your account goes live and you can list properties</li>
+                  <li>• You can optionally complete a full professional profile later for a verified badge</li>
+                </ul>
               </div>
 
-              {/* Terms and Conditions */}
+              {/* Terms */}
               <div className="bg-amber-50 rounded-xl p-4 sm:p-5">
                 <label className="flex items-start gap-3 cursor-pointer touch-manipulation">
                   <input
@@ -876,46 +660,33 @@ const ProAccount = () => {
                     <a href="#" className="text-amber-600 hover:text-amber-700 font-semibold">
                       Privacy Policy
                     </a>
-                    . I understand my information will be verified with MINDCAF and other relevant authorities before account activation.
+                    . I confirm the information I've provided is accurate and my documents are genuine.
                   </span>
                 </label>
-              </div>
-
-              {/* Final verification info */}
-              <div className="bg-green-50 border border-green-200 rounded-xl p-4 sm:p-5">
-                <h4 className="font-bold text-green-900 mb-2 flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5" />
-                  What happens next?
-                </h4>
-                <ul className="text-xs sm:text-sm text-green-800 space-y-1 ml-7">
-                  <li>• Our team reviews your documents within 1-3 business days</li>
-                  <li>• We verify your Land Title with MINDCAF registry</li>
-                  <li>• We check for any property disputes or encumbrances</li>
-                  <li>• You'll receive email confirmation once verified</li>
-                </ul>
               </div>
             </div>
           )}
 
-          {/* Navigation Buttons - Mobile optimized */}
+          {/* Navigation Buttons */}
           <div className="flex gap-3 mt-6 sm:mt-8">
             {currentStep > 1 && (
               <button
                 onClick={handleBack}
-                className="flex-1 py-3 sm:py-4 px-4 sm:px-6 bg-gray-100 text-gray-700 rounded-full font-bold hover:bg-gray-200 active:bg-gray-300 transition-all flex items-center justify-center gap-2 text-sm sm:text-base touch-manipulation"
+                disabled={loading}
+                className="flex-1 py-3 sm:py-4 px-4 sm:px-6 bg-gray-100 text-gray-700 rounded-full font-bold hover:bg-gray-200 active:bg-gray-300 transition-all flex items-center justify-center gap-2 text-sm sm:text-base touch-manipulation disabled:opacity-50"
               >
                 <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
                 Back
               </button>
             )}
-            
+
             <button
               onClick={handleNext}
               disabled={loading}
               className={`
-                py-3 sm:py-4 px-4 sm:px-6 bg-amber-600 text-white rounded-full font-bold 
+                py-3 sm:py-4 px-4 sm:px-6 bg-amber-600 text-white rounded-full font-bold
                 hover:bg-amber-700 active:bg-amber-800
-                disabled:bg-gray-300 disabled:cursor-not-allowed transition-all 
+                disabled:bg-gray-300 disabled:cursor-not-allowed transition-all
                 flex items-center justify-center gap-2 text-sm sm:text-base touch-manipulation
                 ${currentStep === 1 ? 'w-full' : 'flex-1'}
               `}
@@ -929,7 +700,7 @@ const ProAccount = () => {
               ) : (
                 <>
                   <span className="hidden sm:inline">
-                    {currentStep === totalSteps ? 'Submit for Verification' : 'Continue'}
+                    {currentStep === totalSteps ? 'Create My Account' : 'Continue'}
                   </span>
                   <span className="sm:hidden">
                     {currentStep === totalSteps ? 'Submit' : 'Next'}
@@ -941,10 +712,9 @@ const ProAccount = () => {
           </div>
         </div>
 
-        {/* Help Text */}
         <p className="text-center text-xs sm:text-sm text-gray-500 px-4">
           Already have an account?{' '}
-          <a href="#" className="text-amber-600 hover:text-amber-700 font-semibold touch-manipulation">
+          <a href="/agent/login" className="text-amber-600 hover:text-amber-700 font-semibold touch-manipulation">
             Sign in
           </a>
         </p>
@@ -953,7 +723,7 @@ const ProAccount = () => {
   );
 };
 
-// Reusable File Upload Component for mobile
+// ── Reusable File Upload Component (identical to original) ───────────────────
 const FileUploadField = ({ id, label, description, file, onChange, icon: Icon, important = false }) => {
   return (
     <div>
@@ -963,10 +733,10 @@ const FileUploadField = ({ id, label, description, file, onChange, icon: Icon, i
       </label>
       <div className={`
         border-2 border-dashed rounded-xl p-4 sm:p-5 text-center transition-colors touch-manipulation
-        ${file 
-          ? 'border-green-500 bg-green-50' 
-          : important 
-            ? 'border-amber-400 bg-amber-50 hover:border-amber-500' 
+        ${file
+          ? 'border-green-500 bg-green-50'
+          : important
+            ? 'border-amber-400 bg-amber-50 hover:border-amber-500'
             : 'border-gray-300 hover:border-amber-600 active:border-amber-700'
         }
       `}>

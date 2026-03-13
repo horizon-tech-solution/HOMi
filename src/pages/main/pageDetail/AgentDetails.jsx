@@ -1,282 +1,400 @@
-import { X, Star, MapPin, Phone, Mail, ChevronLeft, ChevronRight } from 'lucide-react';
+// src/pages/public/pageDetail/AgentDetails.jsx
+import { X, Star, MapPin, Phone, Mail, Briefcase, Award, Globe, Clock, Loader2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { fetchAgent } from '../../../api/public/agent';
+import SendMessageModal from '../../../components/SendMessageModal';
+import { useUserAuth } from '../../../context/UserAuthContext';
 
-const AgentDetail = ({ agent, isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState('sold');
+const AgentDetail = ({ agentId, isOpen, onClose }) => {
+  const [agent,     setAgent]     = useState(null);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState(null);
+  const [activeTab, setActiveTab] = useState('sale');
+  const [msgOpen,   setMsgOpen]   = useState(false);
+  // Holds a minimal listing-shaped object so SendMessageModal can work with any of the agent's listings.
+  // We'll use the first listing, or null if no listings (modal will still work — just no property tag).
+  const [msgListing, setMsgListing] = useState(null);
+
+  const navigate   = useNavigate();
+  const { user }   = useUserAuth();
+
+  useEffect(() => {
+    if (!isOpen || !agentId) return;
+    setLoading(true);
+    setError(null);
+    fetchAgent(agentId)
+      .then(data => {
+        setAgent(data);
+        // Pick first approved listing as the "context" listing for the message
+        const firstListing = (data.listings || []).find(l => l.status === 'approved') || data.listings?.[0] || null;
+        setMsgListing(firstListing);
+      })
+      .catch(e  => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [isOpen, agentId]);
 
   useEffect(() => {
     if (isOpen) {
-      window.history.replaceState(null, '', `/agent/${agent.id}`);
+      window.history.replaceState(null, '', `/agent/${agentId}`);
       document.body.style.overflow = 'hidden';
     } else {
       window.history.replaceState(null, '', '/find-agent');
-      document.body.style.overflow = 'unset';
+      document.body.style.overflow = '';
     }
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen, agent]);
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen, agentId]);
 
-  if (!isOpen || !agent) return null;
+  if (!isOpen) return null;
 
-  const mockProperties = {
-    sold: [
-      { id: 1, price: '$850,000', beds: 3, baths: 2, sqft: '2,100', location: 'Douala', status: 'Sold 2 months ago' },
-      { id: 2, price: '$1,200,000', beds: 4, baths: 3, sqft: '3,200', location: 'Douala', status: 'Sold 3 months ago' },
-      { id: 3, price: '$650,000', beds: 2, baths: 2, sqft: '1,800', location: 'Yaoundé', status: 'Sold 4 months ago' },
-      { id: 4, price: '$920,000', beds: 3, baths: 2, sqft: '2,400', location: 'Douala', status: 'Sold 5 months ago' },
-    ],
-    forSale: [
-      { id: 5, price: '$780,000', beds: 3, baths: 2, sqft: '2,000', location: 'Douala', status: 'Active' },
-      { id: 6, price: '$1,500,000', beds: 5, baths: 4, sqft: '4,000', location: 'Yaoundé', status: 'Active' },
-    ],
-    forRent: [
-      { id: 7, price: '$2,500/mo', beds: 2, baths: 1, sqft: '1,200', location: 'Douala', status: 'Available' },
-      { id: 8, price: '$3,200/mo', beds: 3, baths: 2, sqft: '1,800', location: 'Douala', status: 'Available' },
-    ],
+  const initials = agent?.name
+    ? agent.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
+    : '?';
+
+  const saleListing  = (agent?.listings || []).filter(l => l.transaction_type === 'sale');
+  const rentListings = (agent?.listings || []).filter(l => l.transaction_type === 'rent');
+  const tabListings  = activeTab === 'sale' ? saleListing : rentListings;
+
+  const formatPrice = (p) => Number(p).toLocaleString('fr-CM') + ' XAF';
+
+  const meta           = agent?.profile_meta
+    ? (typeof agent.profile_meta === 'string' ? JSON.parse(agent.profile_meta) : agent.profile_meta)
+    : {};
+  const languages      = meta.languages      || [];
+  const specialization = meta.specialization || [];
+  const social         = { website: meta.website, facebook: meta.facebook, linkedin: meta.linkedin, instagram: meta.instagram };
+  const workingHours   = meta.workingHours   || {};
+  // WhatsApp: prefer profile_meta.whatsapp, fallback to users.phone
+  const waNumber       = meta.whatsapp || agent?.phone || null;
+
+  const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+
+  // After message sent → go straight to inbox with thread open
+  const handleMessageSent = (inquiryId) => {
+    setMsgOpen(false);
+    onClose();
+    setTimeout(() => navigate(`/messages?thread=${inquiryId}`), 350);
   };
 
-  const reviews = [
-    { rating: 5.0, text: "Outstanding professional who guided us through every step. Highly knowledgeable about the local market.", author: "Sophie M.", date: "2 weeks ago" },
-    { rating: 5.0, text: "Best decision we made. Patient, responsive, and truly cared about finding us the right home.", author: "Marc D.", date: "1 month ago" },
-    { rating: 4.9, text: "Excellent service. Made the buying process smooth and stress-free.", author: "Claire B.", date: "2 months ago" },
-  ];
+  // When a specific listing card is clicked to "message about this listing"
+  const handleMsgAboutListing = (listing) => {
+    setMsgListing(listing);
+    setMsgOpen(true);
+  };
 
   return (
     <>
       <div className="fixed inset-0 bg-black/60 z-40" onClick={onClose} />
-      
+
       <div className="fixed inset-0 z-50 overflow-y-auto bg-white">
+
         {/* Header */}
         <div className="sticky top-0 bg-white/95 backdrop-blur-sm z-10 border-b border-gray-100">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <img src={agent.image} alt={agent.name} className="w-12 h-12 rounded-full" />
+              {agent?.avatar_url
+                ? <img src={agent.avatar_url} alt={agent.name} className="w-10 h-10 rounded-full object-cover" />
+                : <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                    <span className="text-sm font-bold text-amber-700">{initials}</span>
+                  </div>
+              }
               <div>
-                <h3 className="font-semibold text-gray-900">{agent.name}</h3>
-                <p className="text-sm text-gray-500">{agent.company}</p>
+                <h3 className="font-semibold text-gray-900">{agent?.name || '…'}</h3>
+                <p className="text-xs text-gray-500">{agent?.agency_name || 'Real Estate Agent'}</p>
               </div>
             </div>
-            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full">
-              <X className="w-6 h-6" />
+            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+              <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
-          <div className="flex flex-col lg:flex-row gap-8 lg:gap-12">
-            {/* Main Content */}
-            <div className="flex-1 space-y-12">
-              {/* Hero Section */}
-              <div className="flex flex-col md:flex-row gap-8">
-                <img 
-                  src={agent.image} 
-                  alt={agent.name}
-                  className="w-32 h-32 md:w-40 md:h-40 rounded-full object-cover"
-                />
-                <div className="flex-1 space-y-4">
-                  <div>
-                    {agent.verified && (
-                      <span className="inline-block px-3 py-1 bg-green-50 text-green-700 text-xs font-medium rounded-full mb-3">
-                        ✓ Verified Professional
-                      </span>
-                    )}
-                    <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-2">{agent.name}</h1>
-                    <p className="text-xl text-gray-600 mb-1">{agent.company}</p>
-                    <p className="text-gray-500">{agent.specialty} Specialist</p>
-                  </div>
+        {loading && (
+          <div className="flex items-center justify-center py-32">
+            <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
+          </div>
+        )}
+        {error && (
+          <div className="max-w-xl mx-auto py-20 text-center text-red-500 text-sm">{error}</div>
+        )}
 
-                  <div className="flex flex-wrap items-center gap-6 text-sm">
-                    <div className="flex items-center gap-1.5">
-                      <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
-                      <span className="font-semibold text-gray-900">{agent.rating}</span>
-                      <span className="text-gray-500">({agent.reviews} reviews)</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <MapPin className="w-5 h-5 text-gray-400" />
-                      <span className="text-gray-600">{agent.location}</span>
-                    </div>
-                  </div>
+        {!loading && !error && agent && (
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12 pb-24 lg:pb-12">
+            <div className="flex flex-col lg:flex-row gap-8 lg:gap-12">
 
-                  <div className="flex flex-wrap gap-2">
-                    {agent.languages.map(lang => (
-                      <span key={lang} className="px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded-full">
-                        {lang}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              {/* Main */}
+              <div className="flex-1 space-y-10 min-w-0">
 
-              {/* Stats */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                <div>
-                  <div className="text-3xl font-bold text-gray-900">{agent.sales}</div>
-                  <div className="text-sm text-gray-500 mt-1">Properties Sold</div>
-                </div>
-                <div>
-                  <div className="text-3xl font-bold text-gray-900">{agent.reviews}</div>
-                  <div className="text-sm text-gray-500 mt-1">Reviews</div>
-                </div>
-                <div>
-                  <div className="text-3xl font-bold text-gray-900">15+</div>
-                  <div className="text-sm text-gray-500 mt-1">Years Active</div>
-                </div>
-                <div>
-                  <div className="text-3xl font-bold text-gray-900">{agent.rating}</div>
-                  <div className="text-sm text-gray-500 mt-1">Average Rating</div>
-                </div>
-              </div>
-
-              {/* About */}
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">About</h2>
-                <p className="text-gray-600 leading-relaxed">
-                  With over 15 years of experience in the Cameroon real estate market, {agent.name} has built 
-                  a reputation for excellence and dedication to client satisfaction. Specializing in {agent.specialty.toLowerCase()}, 
-                  they have successfully helped hundreds of families find their perfect home. Their deep understanding of the local 
-                  market and commitment to personalized service sets them apart in the industry.
-                </p>
-              </div>
-
-              {/* Properties Tabs */}
-              <div>
-                <div className="flex gap-6 border-b border-gray-200 mb-6">
-                  <button
-                    onClick={() => setActiveTab('sold')}
-                    className={`pb-3 font-semibold relative ${
-                      activeTab === 'sold' ? 'text-gray-900' : 'text-gray-400'
-                    }`}
-                  >
-                    Sold ({mockProperties.sold.length})
-                    {activeTab === 'sold' && (
-                      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-600" />
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('forSale')}
-                    className={`pb-3 font-semibold relative ${
-                      activeTab === 'forSale' ? 'text-gray-900' : 'text-gray-400'
-                    }`}
-                  >
-                    For Sale ({mockProperties.forSale.length})
-                    {activeTab === 'forSale' && (
-                      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-600" />
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('forRent')}
-                    className={`pb-3 font-semibold relative ${
-                      activeTab === 'forRent' ? 'text-gray-900' : 'text-gray-400'
-                    }`}
-                  >
-                    For Rent ({mockProperties.forRent.length})
-                    {activeTab === 'forRent' && (
-                      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-600" />
-                    )}
-                  </button>
-                </div>
-
-                {/* Properties Scroll - Mobile Optimized */}
-                <div className="overflow-x-auto -mx-4 px-4 lg:mx-0 lg:px-0 pb-4">
-                  <div className="flex gap-4 lg:grid lg:grid-cols-2 xl:grid-cols-3">
-                    {mockProperties[activeTab].map((property) => (
-                      <div key={property.id} className="flex-shrink-0 w-72 lg:w-auto">
-                        <div className="aspect-[4/3] bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg mb-3" />
-                        <div className="text-xl font-bold text-gray-900 mb-1">{property.price}</div>
-                        <div className="text-sm text-gray-600 mb-2">
-                          {property.beds} bd · {property.baths} ba · {property.sqft} sqft
-                        </div>
-                        <div className="text-sm text-gray-500">{property.location}</div>
-                        <div className="text-xs text-gray-400 mt-2">{property.status}</div>
+                {/* Hero */}
+                <div className="flex flex-col sm:flex-row gap-6">
+                  {agent.avatar_url
+                    ? <img src={agent.avatar_url} alt={agent.name}
+                        className="w-28 h-28 sm:w-36 sm:h-36 rounded-2xl object-cover shadow-md flex-shrink-0" />
+                    : <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-2xl bg-gradient-to-br from-amber-100 to-amber-200 flex items-center justify-center flex-shrink-0 shadow-md">
+                        <span className="text-4xl font-extrabold text-amber-700">{initials}</span>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+                  }
 
-              {/* Reviews */}
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-6">Client Reviews</h2>
-                <div className="space-y-6">
-                  {reviews.map((review, index) => (
-                    <div key={index} className="pb-6 border-b border-gray-100 last:border-0">
-                      <div className="flex items-center gap-2 mb-3">
+                  <div className="flex-1 min-w-0">
+                    {agent.verification_status === 'verified' && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-50 text-green-700 text-xs font-semibold rounded-full mb-2">
+                        <span className="w-1.5 h-1.5 bg-green-500 rounded-full" /> Verified Professional
+                      </span>
+                    )}
+                    <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 mb-1">{agent.name}</h1>
+                    {agent.agency_name && <p className="text-lg text-gray-600 mb-1">{agent.agency_name}</p>}
+                    {agent.city && (
+                      <p className="flex items-center gap-1.5 text-gray-400 text-sm mb-3">
+                        <MapPin className="w-4 h-4 text-amber-500" />{agent.city}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {specialization.map(s => (
+                        <span key={s} className="bg-amber-50 text-amber-700 text-xs font-semibold px-2.5 py-1 rounded-full border border-amber-100">{s}</span>
+                      ))}
+                      {languages.map(l => (
+                        <span key={l} className="bg-gray-100 text-gray-600 text-xs font-medium px-2.5 py-1 rounded-full">{l}</span>
+                      ))}
+                    </div>
+                    {agent.avg_rating > 0 && (
+                      <div className="flex items-center gap-2">
                         <div className="flex">
-                          {[...Array(5)].map((_, i) => (
-                            <Star key={i} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                          {[1,2,3,4,5].map(i => (
+                            <Star key={i} className={`w-4 h-4 ${i <= Math.round(agent.avg_rating) ? 'fill-amber-400 text-amber-400' : 'text-gray-200 fill-gray-200'}`} />
                           ))}
                         </div>
-                        <span className="font-semibold text-gray-900">{review.rating}</span>
+                        <span className="font-bold text-gray-900 text-sm">{Number(agent.avg_rating).toFixed(1)}</span>
+                        <span className="text-gray-400 text-sm">({agent.review_count} reviews)</span>
                       </div>
-                      <p className="text-gray-700 leading-relaxed mb-3">{review.text}</p>
-                      <div className="flex items-center gap-2 text-sm text-gray-500">
-                        <span>{review.author}</span>
-                        <span>·</span>
-                        <span>{review.date}</span>
-                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Stats */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  {[
+                    { label: 'Active Listings', value: agent.listings_count || agent.listings?.length || 0 },
+                    { label: 'Reviews',          value: agent.review_count  || 0 },
+                    { label: 'Years Experience', value: agent.years_experience != null ? `${agent.years_experience}+` : '—' },
+                    { label: 'Avg. Rating',      value: agent.avg_rating > 0 ? Number(agent.avg_rating).toFixed(1) : '—' },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="bg-gray-50 rounded-2xl p-4 text-center border border-gray-100">
+                      <div className="text-2xl font-extrabold text-gray-900">{value}</div>
+                      <div className="text-xs text-gray-400 mt-1 font-medium">{label}</div>
                     </div>
                   ))}
                 </div>
+
+                {/* About */}
+                {agent.bio && (
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900 mb-3">About</h2>
+                    <p className="text-gray-600 leading-relaxed text-sm">{agent.bio}</p>
+                  </div>
+                )}
+
+                {/* Listings */}
+                {agent.listings?.length > 0 && (
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900 mb-4">Listings</h2>
+                    <div className="flex gap-6 border-b border-gray-200 mb-5">
+                      {[
+                        { key: 'sale', label: `For Sale (${saleListing.length})` },
+                        { key: 'rent', label: `For Rent (${rentListings.length})` },
+                      ].map(t => (
+                        <button key={t.key} onClick={() => setActiveTab(t.key)}
+                          className={`pb-3 text-sm font-semibold relative transition-colors ${activeTab === t.key ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
+                          {t.label}
+                          {activeTab === t.key && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-600 rounded-full" />}
+                        </button>
+                      ))}
+                    </div>
+
+                    {tabListings.length === 0 ? (
+                      <p className="text-sm text-gray-400 py-4">No {activeTab === 'sale' ? 'sale' : 'rental'} listings.</p>
+                    ) : (
+                      <div className="overflow-x-auto -mx-4 px-4 lg:mx-0 lg:px-0 pb-2">
+                        <div className="flex gap-4 lg:grid lg:grid-cols-2 xl:grid-cols-3">
+                          {tabListings.map(p => (
+                            <div key={p.id} className="flex-shrink-0 w-64 lg:w-auto group">
+                              <a href={`/properties?property=${p.id}`} className="block">
+                                <div className="aspect-[4/3] rounded-xl overflow-hidden bg-gray-100 mb-3 shadow-sm">
+                                  {p.cover_photo
+                                    ? <img src={p.cover_photo} alt={p.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                    : <div className="w-full h-full bg-gradient-to-br from-amber-50 to-amber-100 flex items-center justify-center">
+                                        <Briefcase className="w-8 h-8 text-amber-300" />
+                                      </div>
+                                  }
+                                </div>
+                                <div className="font-bold text-gray-900 text-sm truncate group-hover:text-amber-700 transition-colors">{p.title}</div>
+                                <div className="text-amber-700 font-semibold text-sm mt-0.5">{formatPrice(p.price)}</div>
+                                <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
+                                  <MapPin className="w-3 h-3" />{p.city}
+                                  {p.bedrooms  != null && <> · {p.bedrooms} bd</>}
+                                  {p.bathrooms != null && <> · {p.bathrooms} ba</>}
+                                </div>
+                              </a>
+                              {/* Quick message about this listing */}
+                              <button
+                                onClick={() => handleMsgAboutListing(p)}
+                                className="mt-2 w-full text-xs text-amber-700 font-semibold border border-amber-200 hover:bg-amber-50 py-1.5 rounded-lg transition-colors">
+                                Message about this listing
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Working hours */}
+                {Object.keys(workingHours).length > 0 && (
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900 mb-3 flex items-center gap-2">
+                      <Clock className="w-5 h-5 text-amber-500" /> Working Hours
+                    </h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {DAYS.filter(d => workingHours[d]).map(day => {
+                        const h = workingHours[day];
+                        return (
+                          <div key={day} className={`p-3 rounded-xl border text-sm ${h.enabled ? 'bg-green-50 border-green-100' : 'bg-gray-50 border-gray-100 opacity-50'}`}>
+                            <p className="font-semibold capitalize text-gray-800">{day}</p>
+                            <p className="text-gray-500 text-xs mt-0.5">{h.enabled ? `${h.open} – ${h.close}` : 'Closed'}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
 
-            {/* Sidebar Contact Form - Desktop Only */}
-            <div className="lg:w-80 xl:w-96">
-              <div className="lg:sticky lg:top-24">
-                <div className="bg-gray-50 rounded-2xl p-6 space-y-5">
-                  <h3 className="text-lg font-bold text-gray-900">Contact Agent</h3>
-                  
-                  <div className="space-y-4">
-                    <input 
-                      type="text" 
-                      placeholder="Your name"
-                      className="w-full px-4 py-3 bg-white text-gray-900 placeholder-gray-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    />
-                    <input 
-                      type="tel" 
-                      placeholder="Phone number"
-                      className="w-full px-4 py-3 bg-white text-gray-900 placeholder-gray-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    />
-                    <input 
-                      type="email" 
-                      placeholder="Email address"
-                      className="w-full px-4 py-3 bg-white text-gray-900 placeholder-gray-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    />
-                    <textarea 
-                      placeholder="Message (optional)"
-                      rows="3"
-                      className="w-full px-4 py-3 bg-white text-gray-900 placeholder-gray-400 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-amber-500"
-                    />
+              {/* Sidebar */}
+              <div className="lg:w-80 xl:w-96 flex-shrink-0">
+                <div className="lg:sticky lg:top-24 space-y-4">
+
+                  {/* Contact card */}
+                  <div className="bg-gray-50 rounded-2xl p-6 space-y-4 border border-gray-100">
+                    <h3 className="text-base font-bold text-gray-900">Contact {agent.name.split(' ')[0]}</h3>
+
+                    {/* Direct contact buttons */}
+                    <div className="space-y-2">
+                      {agent.phone && (
+                        <a href={`tel:${agent.phone}`}
+                          className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 hover:border-amber-300 hover:bg-amber-50 transition-colors group">
+                          <div className="w-9 h-9 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+                            <Phone className="w-4 h-4 text-amber-600" />
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400 font-medium">Phone</p>
+                            <p className="text-sm font-bold text-gray-900">{agent.phone}</p>
+                          </div>
+                        </a>
+                      )}
+
+                      {waNumber && (
+                        <a href={`https://wa.me/${waNumber.replace(/[^0-9]/g,'')}?text=${encodeURIComponent(`Bonjour ${agent.name}, je vous contacte via HOMi.`)}`}
+                          target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 hover:border-green-300 hover:bg-green-50 transition-colors group">
+                          <div className="w-9 h-9 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                            <svg className="w-4 h-4 text-green-600" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                            </svg>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400 font-medium">WhatsApp</p>
+                            <p className="text-sm font-bold text-gray-900">{waNumber.replace(/[^0-9+]/g,'')}</p>
+                          </div>
+                        </a>
+                      )}
+
+                      {agent.email && (
+                        <a href={`mailto:${agent.email}`}
+                          className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors group">
+                          <div className="w-9 h-9 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                            <Mail className="w-4 h-4 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-400 font-medium">Email</p>
+                            <p className="text-sm font-bold text-gray-900 truncate">{agent.email}</p>
+                          </div>
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Send Message button — opens modal → inquiry → inbox */}
+                    <button
+                      onClick={() => setMsgOpen(true)}
+                      className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm">
+                      <Mail className="w-4 h-4" />
+                      Send Message
+                    </button>
+
+                    {/* Social links */}
+                    {Object.values(social).some(Boolean) && (
+                      <div className="pt-3 border-t border-gray-200">
+                        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Online</p>
+                        <div className="flex flex-wrap gap-2">
+                          {social.website  && <a href={social.website}  target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1"><Globe className="w-3 h-3" />Website</a>}
+                          {social.linkedin && <a href={social.linkedin} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-700 hover:underline">LinkedIn</a>}
+                          {social.facebook && <a href={social.facebook} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">Facebook</a>}
+                          {social.instagram&& <a href={social.instagram}target="_blank" rel="noopener noreferrer" className="text-xs text-pink-600 hover:underline">Instagram</a>}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  <button className="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 rounded-lg">
-                    Send Message
-                  </button>
-
-                  <div className="pt-4 border-t border-gray-200 space-y-3">
-                    <a href={`tel:${agent.phone}`} className="flex items-center gap-3 text-gray-600 hover:text-gray-900">
-                      <Phone className="w-5 h-5" />
-                      <span className="text-sm">{agent.phone}</span>
-                    </a>
-                    <a href={`mailto:${agent.email}`} className="flex items-center gap-3 text-gray-600 hover:text-gray-900">
-                      <Mail className="w-5 h-5" />
-                      <span className="text-sm">{agent.email}</span>
-                    </a>
-                  </div>
+                  {agent.license_number && (
+                    <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex items-center gap-3">
+                      <Award className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide">License</p>
+                        <p className="text-sm font-bold text-gray-900">{agent.license_number}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Mobile Contact Button */}
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4">
-          <button className="w-full bg-amber-600 text-white font-semibold py-4 rounded-lg">
-            Contact {agent.name.split(' ')[0]}
-          </button>
-        </div>
+        {/* Mobile CTA */}
+        {agent && (
+          <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 p-4 flex gap-3">
+            {agent.phone && (
+              <a href={`tel:${agent.phone}`}
+                className="flex-1 flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3.5 rounded-xl text-sm transition-colors">
+                <Phone className="w-4 h-4" /> Call
+              </a>
+            )}
+            {waNumber && (
+              <a href={`https://wa.me/${waNumber.replace(/[^0-9]/g,'')}?text=${encodeURIComponent(`Bonjour ${agent.name}, je vous contacte via HOMi.`)}`}
+                target="_blank" rel="noopener noreferrer"
+                className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold py-3.5 rounded-xl text-sm transition-colors">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                </svg>
+                WhatsApp
+              </a>
+            )}
+            <button onClick={() => setMsgOpen(true)}
+              className="flex-1 flex items-center justify-center gap-2 bg-gray-900 hover:bg-gray-800 text-white font-semibold py-3.5 rounded-xl text-sm transition-colors">
+              <Mail className="w-4 h-4" /> Message
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Send Message modal — inquiry tagged to a listing → goes to inbox */}
+      <SendMessageModal
+        isOpen={msgOpen}
+        onClose={() => setMsgOpen(false)}
+        listing={msgListing}
+        isLoggedIn={!!user}
+        onLoginRequired={() => { setMsgOpen(false); navigate('/auth'); }}
+        onSent={handleMessageSent}
+      />
     </>
   );
 };

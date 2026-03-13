@@ -1,3 +1,4 @@
+// src/pages/public/Home.jsx
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -6,9 +7,9 @@ import {
   CheckCircle, Shield, Users, MessageCircle, Phone, Zap, Lock,
   ChevronDown, ThumbsUp, Quote
 } from 'lucide-react';
-import Button from '../../components/Button';
-import PropertyCard from '../../components/PropertyCard';
-import Loader from '../../components/Loader';
+import Button         from '../../components/Button';
+import PropertyCard   from '../../components/PropertyCard';
+import Loader         from '../../components/Loader';
 
 import buyHomeIcon         from '../../assets/images/buy-home.svg';
 import rentHomeIcon        from '../../assets/images/rent-home.svg';
@@ -22,27 +23,22 @@ import trustBadgeIcon      from '../../assets/images/trust-badge.svg';
 import verifiedIcon        from '../../assets/images/verified-icon.svg';
 import supportIcon         from '../../assets/images/support-icon.svg';
 
+// ── API helpers ────────────────────────────────────────────────────────────
+import { fetchStats, fetchFeatured, fetchTopAgents } from '../../api/public/home';
+
+// ── Static data that does NOT come from DB ─────────────────────────────────
 const CITIES = [
   { id: 'douala',  name: 'Douala'  },
   { id: 'yaounde', name: 'Yaoundé' },
 ];
 
-const MOCK_FEATURED_LISTINGS = [
-  { id:1, title:'Modern 3BR Apartment in Bonanjo',   price:75000,  location:'Bonanjo, Douala',     address:'Bonanjo, Douala',     bedrooms:3, bathrooms:2, area:120, type:'For Rent', listingType:'For Rent', image:'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=600&h=400&fit=crop', images:['https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=600&h=400&fit=crop'], isFavorited:false },
-  { id:2, title:'Luxury Villa with Swimming Pool',    price:250000, location:'Bastos, Yaoundé',      address:'Bastos, Yaoundé',      bedrooms:5, bathrooms:4, area:350, type:'For Sale', listingType:'For Sale', image:'https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=600&h=400&fit=crop', images:['https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=600&h=400&fit=crop'], isFavorited:false },
-  { id:3, title:'Cozy Studio Apartment',              price:35000,  location:'Akwa, Douala',         address:'Akwa, Douala',         bedrooms:1, bathrooms:1, area:45,  type:'For Rent', listingType:'For Rent', image:'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&h=400&fit=crop', images:['https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=600&h=400&fit=crop'], isFavorited:false },
-  { id:4, title:'Spacious 4BR Family House',          price:180000, location:'Bepanda, Douala',      address:'Bepanda, Douala',      bedrooms:4, bathrooms:3, area:200, type:'For Sale', listingType:'For Sale', image:'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=600&h=400&fit=crop', images:['https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=600&h=400&fit=crop'], isFavorited:false },
-  { id:5, title:'Commercial Space in City Center',    price:120000, location:'Centre Ville, Douala', address:'Centre Ville, Douala', bedrooms:0, bathrooms:2, area:150, type:'For Rent', listingType:'For Rent', image:'https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&h=400&fit=crop', images:['https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&h=400&fit=crop'], isFavorited:false },
-  { id:6, title:'Elegant 2BR Apartment with Garden',  price:65000,  location:'Nlongkak, Yaoundé',    address:'Nlongkak, Yaoundé',    bedrooms:2, bathrooms:2, area:95,  type:'For Rent', listingType:'For Rent', image:'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=600&h=400&fit=crop', images:['https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=600&h=400&fit=crop'], isFavorited:false },
-];
-
 const NEIGHBORHOODS = [
-  { name:'Bonanjo',    city:'Douala',  listings:48, image:'https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=400&h=300&fit=crop',   tag:'Business Hub' },
-  { name:'Bastos',     city:'Yaoundé', listings:32, image:'https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=400&h=300&fit=crop',   tag:'Luxury'       },
-  { name:'Akwa',       city:'Douala',  listings:61, image:'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=400&h=300&fit=crop',       tag:'Commercial'   },
-  { name:'Nlongkak',   city:'Yaoundé', listings:27, image:'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=400&h=300&fit=crop',   tag:'Residential'  },
-  { name:'Deido',      city:'Douala',  listings:39, image:'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=400&h=300&fit=crop',   tag:'Family'       },
-  { name:'Biyem-Assi', city:'Yaoundé', listings:44, image:'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=400&h=300&fit=crop',  tag:'Affordable'   },
+  { name:'Bonanjo',    city:'Douala',  listings:48, image:'https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=400&h=300&fit=crop',  tag:'Business Hub' },
+  { name:'Bastos',     city:'Yaoundé', listings:32, image:'https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=400&h=300&fit=crop',  tag:'Luxury'       },
+  { name:'Akwa',       city:'Douala',  listings:61, image:'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=400&h=300&fit=crop',      tag:'Commercial'   },
+  { name:'Nlongkak',   city:'Yaoundé', listings:27, image:'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=400&h=300&fit=crop',  tag:'Residential'  },
+  { name:'Deido',      city:'Douala',  listings:39, image:'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=400&h=300&fit=crop',  tag:'Family'       },
+  { name:'Biyem-Assi', city:'Yaoundé', listings:44, image:'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=400&h=300&fit=crop', tag:'Affordable'   },
 ];
 
 const TESTIMONIALS = [
@@ -51,16 +47,11 @@ const TESTIMONIALS = [
   { name:'Aminata Diallo',   role:'Renter',             city:'Douala',  text:"Found a beautiful 2-bedroom in Bonanjo at a fair price. No hidden fees, no scams. Highly recommend HOMi!", rating:5, avatar:'https://randomuser.me/api/portraits/women/68.jpg' },
 ];
 
-const AGENTS = [
-  { name:'Paul Ateba',    title:'Senior Agent',      listings:42, sales:128, rating:4.9, city:'Douala',  avatar:'https://randomuser.me/api/portraits/men/45.jpg',   verified:true },
-  { name:'Grace Ekweme', title:'Luxury Specialist',  listings:28, sales:89,  rating:4.8, city:'Yaoundé', avatar:'https://randomuser.me/api/portraits/women/33.jpg', verified:true },
-  { name:'David Nkomo',  title:'Investment Advisor', listings:35, sales:104, rating:4.9, city:'Douala',  avatar:'https://randomuser.me/api/portraits/men/67.jpg',   verified:true },
-];
-
+// ── Animated counter hook ──────────────────────────────────────────────────
 const useCounter = (target, duration = 2000, active = false) => {
   const [val, setVal] = useState(0);
   useEffect(() => {
-    if (!active) return;
+    if (!active || target === 0) return;
     let start;
     const raf = (ts) => {
       if (!start) start = ts;
@@ -73,72 +64,148 @@ const useCounter = (target, duration = 2000, active = false) => {
   return val;
 };
 
+// ── normalise a listing from the API to what PropertyCard expects ──────────
+const normalise = (l) => ({
+  ...l,
+  type:        l.transaction_type === 'sale' ? 'For Sale' : 'For Rent',
+  listingType: l.transaction_type === 'sale' ? 'For Sale' : 'For Rent',
+  image:       l.cover_photo || l.photos?.[0] || '',
+  images:      l.photos || [],
+  isFavorited: false,
+});
+
+// ── normalise agent from API ───────────────────────────────────────────────
+const normaliseAgent = (a) => ({
+  ...a,
+  rating:   a.avg_rating  || 0,
+  sales:    a.review_count || 0,        // best proxy we have without a sales table
+  listings: a.listings_count || 0,
+  title:    a.agency_name
+              ? a.agency_name
+              : (a.years_experience ? `${a.years_experience}y experience` : 'Agent'),
+  avatar:   a.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(a.name)}&size=128`,
+  verified: a.verified || a.verification_status === 'verified',
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
 const Home = () => {
   const navigate = useNavigate();
+
+  // ── state ─────────────────────────────────────────────────────────────────
   const [featuredListings, setFeaturedListings] = useState([]);
-  const [loading, setLoading]           = useState(true);
-  const [searchCity, setSearchCity]     = useState('');
-  const [searchType, setSearchType]     = useState('');
-  const [searchTab, setSearchTab]       = useState('rent');
-  const [priceMin, setPriceMin]         = useState('');
-  const [priceMax, setPriceMax]         = useState('');
-  const [bedrooms, setBedrooms]         = useState('');
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [statsOn, setStatsOn]           = useState(false);
-  const [activeTmn, setActiveTmn]       = useState(0);
-  const [nCity, setNCity]               = useState('all');
-  const [canLeft, setCanLeft]           = useState(false);
-  const [canRight, setCanRight]         = useState(true);
+  const [agents,            setAgents]           = useState([]);
+  const [stats,             setStats]            = useState({ listings: 0, agents: 0, sales: 0, cities: 0 });
+  const [loading,           setLoading]          = useState(true);
+  const [agentsLoading,     setAgentsLoading]    = useState(true);
+
+  const [searchCity,    setSearchCity]    = useState('');
+  const [searchType,    setSearchType]    = useState('');
+  const [searchTab,     setSearchTab]     = useState('rent');
+  const [priceMin,      setPriceMin]      = useState('');
+  const [priceMax,      setPriceMax]      = useState('');
+  const [bedrooms,      setBedrooms]      = useState('');
+  const [showAdvanced,  setShowAdvanced]  = useState(false);
+
+  const [statsOn,   setStatsOn]   = useState(false);
+  const [activeTmn, setActiveTmn] = useState(0);
+  const [nCity,     setNCity]     = useState('all');
+  const [canLeft,   setCanLeft]   = useState(false);
+  const [canRight,  setCanRight]  = useState(true);
+
   const scrollRef = useRef(null);
   const statsRef  = useRef(null);
 
-  const cListings = useCounter(500,  2000, statsOn);
-  const cAgents   = useCounter(120,  2000, statsOn);
-  const cSales    = useCounter(1800, 2200, statsOn);
-  const cCities   = useCounter(12,   1500, statsOn);
+  // animated counters (use real stats once loaded)
+  const cListings = useCounter(stats.listings, 2000, statsOn);
+  const cAgents   = useCounter(stats.agents,   2000, statsOn);
+  const cSales    = useCounter(stats.sales,    2200, statsOn);
+  const cCities   = useCounter(stats.cities,   1500, statsOn);
 
-  useEffect(() => { setTimeout(() => { setFeaturedListings(MOCK_FEATURED_LISTINGS); setLoading(false); }, 1000); }, []);
+  // ── data fetching ──────────────────────────────────────────────────────────
   useEffect(() => {
-    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) setStatsOn(true); }, { threshold: 0.3 });
+    // featured listings
+    fetchFeatured(6)
+      .then(res => setFeaturedListings((res.data || []).map(normalise)))
+      .catch(() => setFeaturedListings([]))
+      .finally(() => setLoading(false));
+
+    // platform stats
+    fetchStats()
+      .then(data => setStats({
+        listings: data.listings ?? 0,
+        agents:   data.agents   ?? 0,
+        sales:    data.sales    ?? 0,
+        cities:   data.cities   ?? 0,
+      }))
+      .catch(() => {/* keep defaults */});
+
+    // top agents
+    fetchTopAgents(3)
+      .then(res => setAgents((res.data || []).map(normaliseAgent)))
+      .catch(() => setAgents([]))
+      .finally(() => setAgentsLoading(false));
+  }, []);
+
+  // intersection observer → trigger counters
+  useEffect(() => {
+    const obs = new IntersectionObserver(
+      ([e]) => { if (e.isIntersecting) setStatsOn(true); },
+      { threshold: 0.3 }
+    );
     if (statsRef.current) obs.observe(statsRef.current);
     return () => obs.disconnect();
   }, []);
+
+  // testimonial auto-rotate
   useEffect(() => {
     const t = setInterval(() => setActiveTmn(p => (p + 1) % TESTIMONIALS.length), 5500);
     return () => clearInterval(t);
   }, []);
 
+  // scroll state for carousel arrows
   const checkScroll = () => {
     if (!scrollRef.current) return;
     const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
     setCanLeft(scrollLeft > 0);
     setCanRight(scrollLeft < scrollWidth - clientWidth - 10);
   };
-  const scroll = (dir) => scrollRef.current?.scrollTo({ left: scrollRef.current.scrollLeft + (dir === 'left' ? -400 : 400), behavior: 'smooth' });
+  const scroll = (dir) =>
+    scrollRef.current?.scrollTo({
+      left: scrollRef.current.scrollLeft + (dir === 'left' ? -400 : 400),
+      behavior: 'smooth',
+    });
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) { checkScroll(); el.addEventListener('scroll', checkScroll); return () => el.removeEventListener('scroll', checkScroll); }
+    if (el) {
+      checkScroll();
+      el.addEventListener('scroll', checkScroll);
+      return () => el.removeEventListener('scroll', checkScroll);
+    }
   }, [featuredListings]);
 
+  // ── search handler ─────────────────────────────────────────────────────────
   const handleSearch = () => {
     const p = new URLSearchParams();
     if (searchCity) p.append('city', searchCity);
-    if (searchType) p.append('type', searchType);
+    if (searchType) p.append('property_type', searchType);
     if (searchTab)  p.append('listingType', searchTab);
-    if (priceMin)   p.append('priceMin', priceMin);
-    if (priceMax)   p.append('priceMax', priceMax);
+    if (priceMin)   p.append('price_min', priceMin);
+    if (priceMax)   p.append('price_max', priceMax);
     if (bedrooms)   p.append('bedrooms', bedrooms);
     navigate(`/properties?${p.toString()}`);
   };
 
-  const filteredN = nCity === 'all' ? NEIGHBORHOODS : NEIGHBORHOODS.filter(n => n.city.toLowerCase() === nCity);
+  const filteredN = nCity === 'all'
+    ? NEIGHBORHOODS
+    : NEIGHBORHOODS.filter(n => n.city.toLowerCase() === nCity);
 
+  // ════════════════════════════════════════════════════════════════════════════
   return (
     <div className="bg-white min-h-screen" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Fraunces:ital,wght@0,700;0,800;0,900;1,700&display=swap" rel="stylesheet" />
 
-      {/* ── HERO ───────────────────────────────────────────────────── */}
+      {/* ── HERO ─────────────────────────────────────────────────────────── */}
       <section className="relative min-h-screen flex items-center overflow-hidden bg-[#FAFAF8]">
         <div className="absolute top-0 left-0 w-[600px] h-[600px] rounded-full bg-amber-50 blur-3xl opacity-70 -translate-x-1/3 -translate-y-1/3 pointer-events-none" />
         <div className="absolute bottom-0 right-1/3 w-[400px] h-[400px] rounded-full bg-orange-50 blur-3xl opacity-60 pointer-events-none" />
@@ -154,7 +221,7 @@ const Home = () => {
               Find Your<br /><em className="text-amber-600 not-italic">Perfect</em> Home<br />in Cameroon
             </h1>
             <p className="text-gray-500 text-lg font-medium leading-relaxed mb-8">
-              Browse <strong className="text-gray-700">500+ verified properties</strong> across Douala &amp; Yaoundé. No scams. No hidden fees. Just your next home.
+              Browse <strong className="text-gray-700">{stats.listings}+ verified properties</strong> across Douala &amp; Yaoundé. No scams. No hidden fees. Just your next home.
             </p>
             <div className="flex flex-wrap gap-3 mb-10">
               {[{ icon: Shield, label:'Verified listings' },{ icon: Zap, label:'Instant contact' },{ icon: Lock, label:'Safe payments' }].map(({ icon: Icon, label }) => (
@@ -210,7 +277,8 @@ const Home = () => {
                     <select value={bedrooms} onChange={e => setBedrooms(e.target.value)}
                       className="px-3 py-3 border border-gray-200 rounded-xl focus:border-amber-400 outline-none text-sm text-gray-700 bg-gray-50">
                       <option value="">Beds</option>
-                      <option value="1">1+</option><option value="2">2+</option><option value="3">3+</option><option value="4">4+</option>
+                      <option value="1">1+</option><option value="2">2+</option>
+                      <option value="3">3+</option><option value="4">4+</option>
                     </select>
                   </div>
                 )}
@@ -261,15 +329,15 @@ const Home = () => {
         </div>
       </section>
 
-      {/* ── STATS BAR ──────────────────────────────────────────────── */}
+      {/* ── STATS BAR ────────────────────────────────────────────────────── */}
       <section ref={statsRef} className="bg-white border-y border-gray-100 py-10">
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 max-w-4xl mx-auto text-center">
             {[
-              { val: cListings, suffix:'+', label:'Active Listings',  color:'text-amber-600' },
-              { val: cAgents,   suffix:'+', label:'Verified Agents',  color:'text-blue-500'  },
-              { val: cSales,    suffix:'+', label:'Successful Sales', color:'text-green-500' },
-              { val: cCities,   suffix:'',  label:'Cities Covered',   color:'text-purple-500'},
+              { val: cListings, suffix:'+', label:'Active Listings',  color:'text-amber-600'  },
+              { val: cAgents,   suffix:'+', label:'Verified Agents',  color:'text-blue-500'   },
+              { val: cSales,    suffix:'+', label:'Successful Sales', color:'text-green-500'  },
+              { val: cCities,   suffix:'',  label:'Cities Covered',   color:'text-purple-500' },
             ].map(({ val, suffix, label, color }) => (
               <div key={label}>
                 <div className={`text-4xl md:text-5xl font-black ${color} mb-1`}>{val.toLocaleString()}{suffix}</div>
@@ -280,7 +348,7 @@ const Home = () => {
         </div>
       </section>
 
-      {/* ── BUY / RENT / SELL — your SVGs ──────────────────────────── */}
+      {/* ── BUY / RENT / SELL ────────────────────────────────────────────── */}
       <section className="py-20 bg-[#FAFAF8]">
         <div className="container mx-auto px-4">
           <div className="text-center mb-14">
@@ -289,9 +357,9 @@ const Home = () => {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-7 max-w-5xl mx-auto">
             {[
-              { img: buyHomeIcon,  title:'Buy a Home',       desc:'Find the perfect property with transparent pricing and expert guidance every step of the way.', cta:'Browse for sale', href:'/properties?listingType=sale', bg:'#FFF7ED', border:'#FED7AA' },
-              { img: rentHomeIcon, title:'Rent a Home',      desc:'Browse the largest selection of rental properties and move in with confidence, no scams.',      cta:'Find rentals',    href:'/properties?listingType=rent', bg:'#EFF6FF', border:'#BFDBFE' },
-              { img: sellHomeIcon, title:'Sell Your Home',   desc:'List your property and connect with thousands of qualified buyers for the best price.',          cta:'List a property', href:'/become-agent',                bg:'#F0FDF4', border:'#BBF7D0' },
+              { img: buyHomeIcon,  title:'Buy a Home',     desc:'Find the perfect property with transparent pricing and expert guidance every step of the way.', cta:'Browse for sale', href:'/properties?listingType=sale', bg:'#FFF7ED', border:'#FED7AA' },
+              { img: rentHomeIcon, title:'Rent a Home',    desc:'Browse the largest selection of rental properties and move in with confidence, no scams.',      cta:'Find rentals',    href:'/properties?listingType=rent', bg:'#EFF6FF', border:'#BFDBFE' },
+              { img: sellHomeIcon, title:'Sell Your Home', desc:'List your property and connect with thousands of qualified buyers for the best price.',          cta:'List a property', href:'/become-agent',                bg:'#F0FDF4', border:'#BBF7D0' },
             ].map(({ img, title, desc, cta, href, bg, border }) => (
               <div key={title} className="rounded-3xl p-8 flex flex-col items-center text-center hover:shadow-xl transition-all duration-300 group border-2" style={{ background: bg, borderColor: border }}>
                 <div className="w-44 h-44 mb-6 group-hover:scale-105 transition-transform duration-300 drop-shadow-md">
@@ -310,7 +378,7 @@ const Home = () => {
         </div>
       </section>
 
-      {/* ── FEATURED PROPERTIES ─────────────────────────────────────── */}
+      {/* ── FEATURED PROPERTIES ──────────────────────────────────────────── */}
       <section className="py-20 bg-white">
         <div className="container mx-auto px-4">
           <div className="flex items-end justify-between mb-10">
@@ -349,14 +417,14 @@ const Home = () => {
           <div className="text-center mt-10">
             <Link to="/properties">
               <button className="inline-flex items-center gap-2 bg-gray-900 hover:bg-amber-600 text-white rounded-2xl px-8 py-4 font-bold text-sm transition-all hover:shadow-lg">
-                Show all 500+ properties <ArrowRight className="w-4 h-4" />
+                Show all {stats.listings}+ properties <ArrowRight className="w-4 h-4" />
               </button>
             </Link>
           </div>
         </div>
       </section>
 
-      {/* ── NEIGHBOURHOODS ───────────────────────────────────────────── */}
+      {/* ── NEIGHBOURHOODS ───────────────────────────────────────────────── */}
       <section className="py-20 bg-[#FAFAF8]">
         <div className="container mx-auto px-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-10 gap-5">
@@ -395,7 +463,7 @@ const Home = () => {
         </div>
       </section>
 
-      {/* ── HOW IT WORKS — your SVGs ─────────────────────────────────── */}
+      {/* ── HOW IT WORKS ─────────────────────────────────────────────────── */}
       <section className="py-20 bg-white relative overflow-hidden">
         <div className="absolute -right-20 top-1/2 -translate-y-1/2 w-72 h-72 rounded-full bg-amber-50 blur-3xl opacity-60 pointer-events-none" />
         <div className="container mx-auto px-4 relative z-10">
@@ -426,7 +494,7 @@ const Home = () => {
         </div>
       </section>
 
-      {/* ── MARKET INSIGHTS STRIP ───────────────────────────────────── */}
+      {/* ── MARKET INSIGHTS STRIP ────────────────────────────────────────── */}
       <section className="py-12 bg-amber-600 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10" style={{ backgroundImage:'radial-gradient(circle, white 1.5px, transparent 0)', backgroundSize:'32px 32px' }} />
         <div className="container mx-auto px-4 relative z-10">
@@ -449,7 +517,7 @@ const Home = () => {
         </div>
       </section>
 
-      {/* ── TOP AGENTS ──────────────────────────────────────────────── */}
+      {/* ── TOP AGENTS ───────────────────────────────────────────────────── */}
       <section className="py-20 bg-[#FAFAF8]">
         <div className="container mx-auto px-4">
           <div className="flex items-end justify-between mb-12">
@@ -461,53 +529,68 @@ const Home = () => {
               All agents <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </Link>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-            {AGENTS.map(a => (
-              <div key={a.name} className="bg-white rounded-3xl p-6 border border-gray-100 hover:shadow-xl hover:border-amber-100 transition-all duration-300 group">
-                <div className="flex items-start gap-4 mb-5">
-                  <div className="relative flex-shrink-0">
-                    <img src={a.avatar} alt={a.name} className="w-16 h-16 rounded-2xl object-cover" />
-                    {a.verified && (
-                      <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center border-2 border-white">
-                        <CheckCircle className="w-3.5 h-3.5 text-white" />
-                      </div>
+
+          {agentsLoading ? (
+            <Loader text="Loading agents..." />
+          ) : agents.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+              {agents.map(a => (
+                <div key={a.id} className="bg-white rounded-3xl p-6 border border-gray-100 hover:shadow-xl hover:border-amber-100 transition-all duration-300 group">
+                  <div className="flex items-start gap-4 mb-5">
+                    <div className="relative flex-shrink-0">
+                      <img src={a.avatar} alt={a.name} className="w-16 h-16 rounded-2xl object-cover" />
+                      {a.verified && (
+                        <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center border-2 border-white">
+                          <CheckCircle className="w-3.5 h-3.5 text-white" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-black text-gray-900 truncate">{a.name}</h3>
+                      <p className="text-amber-600 text-sm font-semibold">{a.title}</p>
+                      <p className="text-gray-400 text-xs mt-0.5 flex items-center gap-1">
+                        <MapPin className="w-3 h-3" />{a.city || '—'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 bg-amber-50 rounded-xl px-2.5 py-1.5 flex-shrink-0">
+                      <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                      <span className="text-sm font-black text-amber-700">{a.rating > 0 ? a.rating : '—'}</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mb-5">
+                    <div className="bg-gray-50 rounded-2xl p-3 text-center">
+                      <div className="text-2xl font-black text-gray-900">{a.listings}</div>
+                      <div className="text-xs text-gray-400 font-medium">Active listings</div>
+                    </div>
+                    <div className="bg-gray-50 rounded-2xl p-3 text-center">
+                      <div className="text-2xl font-black text-gray-900">{a.sales}</div>
+                      <div className="text-xs text-gray-400 font-medium">Reviews</div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Link to={`/agents/${a.id}`} className="flex-1">
+                      <button className="w-full flex items-center justify-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl py-2.5 text-sm font-bold transition-all">
+                        <MessageCircle className="w-4 h-4" /> Contact
+                      </button>
+                    </Link>
+                    {a.phone && (
+                      <a href={`tel:${a.phone}`} className="flex-1">
+                        <button className="w-full flex items-center justify-center gap-1.5 border-2 border-gray-200 hover:border-amber-300 hover:text-amber-700 text-gray-600 rounded-xl py-2.5 text-sm font-bold transition-all">
+                          <Phone className="w-4 h-4" /> Call
+                        </button>
+                      </a>
                     )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-black text-gray-900 truncate">{a.name}</h3>
-                    <p className="text-amber-600 text-sm font-semibold">{a.title}</p>
-                    <p className="text-gray-400 text-xs mt-0.5 flex items-center gap-1"><MapPin className="w-3 h-3" />{a.city}</p>
-                  </div>
-                  <div className="flex items-center gap-1 bg-amber-50 rounded-xl px-2.5 py-1.5 flex-shrink-0">
-                    <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                    <span className="text-sm font-black text-amber-700">{a.rating}</span>
-                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3 mb-5">
-                  <div className="bg-gray-50 rounded-2xl p-3 text-center">
-                    <div className="text-2xl font-black text-gray-900">{a.listings}</div>
-                    <div className="text-xs text-gray-400 font-medium">Active listings</div>
-                  </div>
-                  <div className="bg-gray-50 rounded-2xl p-3 text-center">
-                    <div className="text-2xl font-black text-gray-900">{a.sales}</div>
-                    <div className="text-xs text-gray-400 font-medium">Total sales</div>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button className="flex-1 flex items-center justify-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl py-2.5 text-sm font-bold transition-all">
-                    <MessageCircle className="w-4 h-4" /> Message
-                  </button>
-                  <button className="flex-1 flex items-center justify-center gap-1.5 border-2 border-gray-200 hover:border-amber-300 hover:text-amber-700 text-gray-600 rounded-xl py-2.5 text-sm font-bold transition-all">
-                    <Phone className="w-4 h-4" /> Call
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-center text-gray-400 py-10">No verified agents yet.</p>
+          )}
         </div>
       </section>
 
-      {/* ── WHY HOMI — your SVGs ─────────────────────────────────────── */}
+      {/* ── WHY HOMI ─────────────────────────────────────────────────────── */}
       <section className="py-20 bg-white">
         <div className="container mx-auto px-4">
           <div className="text-center mb-14">
@@ -516,9 +599,9 @@ const Home = () => {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
             {[
-              { img:trustBadgeIcon, title:'100% Verified',        desc:'Every property and agent is thoroughly reviewed. Zero scams, zero fake listings on our platform.' },
-              { img:verifiedIcon,   title:'Transparent Pricing',  desc:'No hidden fees. What you see is what you pay. Clear, honest pricing from day one.' },
-              { img:supportIcon,    title:'24/7 Support',         desc:'Our dedicated team is always here to help you through every step of your property journey.' },
+              { img:trustBadgeIcon, title:'100% Verified',       desc:'Every property and agent is thoroughly reviewed. Zero scams, zero fake listings on our platform.' },
+              { img:verifiedIcon,   title:'Transparent Pricing', desc:'No hidden fees. What you see is what you pay. Clear, honest pricing from day one.' },
+              { img:supportIcon,    title:'24/7 Support',        desc:'Our dedicated team is always here to help you through every step of your property journey.' },
             ].map(({ img, title, desc }) => (
               <div key={title} className="flex flex-col items-center text-center group p-6 rounded-3xl hover:bg-amber-50 border-2 border-transparent hover:border-amber-100 transition-all duration-300">
                 <div className="w-28 h-28 mb-6 group-hover:scale-110 transition-transform duration-300 drop-shadow-md">
@@ -545,7 +628,7 @@ const Home = () => {
         </div>
       </section>
 
-      {/* ── TESTIMONIALS ────────────────────────────────────────────── */}
+      {/* ── TESTIMONIALS ─────────────────────────────────────────────────── */}
       <section className="py-20 bg-[#FAFAF8]">
         <div className="container mx-auto px-4">
           <div className="text-center mb-14">
@@ -582,7 +665,7 @@ const Home = () => {
         </div>
       </section>
 
-      {/* ── LIST YOUR PROPERTY ───────────────────────────────────────── */}
+      {/* ── LIST YOUR PROPERTY ───────────────────────────────────────────── */}
       <section className="py-20 bg-white">
         <div className="container mx-auto px-4">
           <div className="max-w-5xl mx-auto bg-gray-950 rounded-3xl overflow-hidden grid grid-cols-1 md:grid-cols-2 relative">
@@ -616,7 +699,7 @@ const Home = () => {
         </div>
       </section>
 
-      {/* ── FINAL CTA ───────────────────────────────────────────────── */}
+      {/* ── FINAL CTA ────────────────────────────────────────────────────── */}
       <section className="py-20 bg-amber-600 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10" style={{ backgroundImage:'radial-gradient(circle, white 1.5px, transparent 0)', backgroundSize:'36px 36px' }} />
         <div className="container mx-auto px-4 relative z-10 text-center">
@@ -632,7 +715,7 @@ const Home = () => {
                 <Search className="w-4 h-4" /> Browse Properties
               </button>
             </Link>
-            <Link to="/user/auth">
+            <Link to="/auth">
               <button className="bg-amber-700/50 hover:bg-amber-700/70 border border-white/30 text-white rounded-xl px-9 py-4 font-bold text-sm transition-all flex items-center gap-2">
                 <HomeIcon className="w-4 h-4" /> Create Free Account
               </button>

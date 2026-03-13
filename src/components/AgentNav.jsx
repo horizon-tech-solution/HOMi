@@ -18,9 +18,10 @@ const AgentNav = ({ unreadLeads = 0, unreadNotifications = 0 }) => {
   const navItems = [
     { path: '/agent/home', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/agent/listings', label: 'My Listings', icon: Building2 },
-    { path: '/agent/add-property', label: 'Add Property', icon: PlusCircle },
+    { path: '/agent/listings/add', label: 'Add Property', icon: PlusCircle },
     { path: '/agent/leads', label: 'Leads', icon: Users, badge: unreadLeads },
     { path: '/agent/notifications', label: 'Notifications', icon: Bell, badge: unreadNotifications },
+    { path: '/agent/profile', label: 'Profile', icon: Users },
     { path: '/agent/settings', label: 'Settings', icon: Settings }
   ];
 

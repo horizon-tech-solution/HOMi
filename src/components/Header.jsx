@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useUserAuth } from '../context/UserAuthContext';
 import { 
   Building2, 
   Menu, 
@@ -24,11 +25,9 @@ const Header = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Get user from localStorage (replace with your auth logic)
-  const user = JSON.parse(localStorage.getItem('user') || 'null');
+  const { user, logout } = useUserAuth();
   const isAgent = user?.role === 'agent';
 
-  // Handle scroll effect
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 20);
@@ -37,13 +36,11 @@ const Header = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Close mobile menu on route change
   useEffect(() => {
     setIsMobileMenuOpen(false);
     setIsProfileOpen(false);
   }, [location]);
 
-  // Prevent body scroll when mobile menu is open
   useEffect(() => {
     if (isMobileMenuOpen) {
       document.body.style.overflow = 'hidden';
@@ -56,14 +53,12 @@ const Header = () => {
   }, [isMobileMenuOpen]);
 
   const handleLogout = () => {
-    localStorage.removeItem('user');
-    localStorage.removeItem('auth_token');
-    navigate('/login');
+    logout();
+    navigate('/auth');
   };
 
   return (
     <>
-      {/* Header - Fixed with proper z-index */}
       <header 
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
           isScrolled 
@@ -74,7 +69,7 @@ const Header = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-16">
             
-            {/* Logo - Optimized for mobile */}
+            {/* Logo */}
             <Link to="/" className="flex items-center space-x-2 group flex-shrink-0">
               <div className="relative">
                 <Building2 className="w-7 h-7 sm:w-8 sm:h-8 text-amber-600 transition-transform group-hover:scale-110" />
@@ -117,7 +112,7 @@ const Header = () => {
               
               {user ? (
                 <>
-                  {/* Search Button - Compact on mobile */}
+                  {/* Search Button */}
                   <button 
                     onClick={() => navigate('/properties')}
                     className="p-2 sm:px-3 sm:py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-all"
@@ -126,7 +121,7 @@ const Header = () => {
                     <Search className="w-5 h-5" />
                   </button>
 
-                  {/* Favorites - Mobile optimized */}
+                  {/* Favorites */}
                   <Link
                     to="/user/favorites"
                     className="relative p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-all"
@@ -148,7 +143,6 @@ const Header = () => {
                       </div>
                     </button>
 
-                    {/* Desktop Dropdown */}
                     {isProfileOpen && (
                       <>
                         <div 
@@ -168,7 +162,7 @@ const Header = () => {
 
                           <div className="py-2">
                             <Link
-                              to="/user/home"
+                              to={isAgent ? '/agent/home' : '/user/home'}
                               className="flex items-center space-x-3 px-4 py-2.5 text-gray-700 hover:bg-gray-50 transition-colors"
                             >
                               <LayoutDashboard className="w-4 h-4" />
@@ -213,13 +207,13 @@ const Header = () => {
               ) : (
                 <>
                   <Link
-                    to="/user/auth"
+                    to="/auth"
                     className="hidden sm:inline-block px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-all text-sm font-medium"
                   >
                     Login
                   </Link>
                   <Link
-                    to="/user/auth"
+                    to="/auth"
                     className="sm:hidden p-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-all"
                     aria-label="Login"
                   >
@@ -241,22 +235,20 @@ const Header = () => {
         </div>
       </header>
 
-      {/* Spacer to prevent content from going under fixed header */}
+      {/* Spacer */}
       <div className="h-16"></div>
 
-      {/* Mobile Menu - Full Screen Overlay */}
+      {/* Mobile Menu */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-[60] lg:hidden">
-          {/* Backdrop with animation */}
           <div 
             className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300"
             onClick={() => setIsMobileMenuOpen(false)}
           ></div>
 
-          {/* Menu Panel - Full height, slide from right */}
           <div className="absolute right-0 top-0 bottom-0 w-full max-w-sm bg-white shadow-2xl transform transition-transform duration-300 flex flex-col">
             
-            {/* Header */}
+            {/* Mobile Header */}
             <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-amber-50 to-white flex-shrink-0">
               <div className="flex items-center space-x-2">
                 <Building2 className="w-6 h-6 text-amber-600" />
@@ -276,7 +268,8 @@ const Header = () => {
             {/* Scrollable Content */}
             <div className="flex-1 overflow-y-auto">
               <div className="p-4">
-                {/* User Info (if logged in) */}
+
+                {/* User Info */}
                 {user ? (
                   <div className="mb-6 p-4 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-100">
                     <div className="flex items-center space-x-3 mb-3">
@@ -297,7 +290,7 @@ const Header = () => {
                 ) : (
                   <div className="mb-6 space-y-3">
                     <Link
-                      to="/user/auth"
+                      to="/auth"
                       className="block w-full text-center px-4 py-3 bg-amber-600 text-white rounded-xl hover:bg-amber-700 transition-all font-semibold shadow-sm"
                     >
                       Login / Sign Up
@@ -369,7 +362,7 @@ const Header = () => {
                       </div>
                       
                       <Link
-                        to="/user/home"
+                        to={isAgent ? '/agent/home' : '/user/home'}
                         className="flex items-center justify-between px-4 py-3.5 text-gray-900 hover:bg-gray-50 rounded-xl transition-all group"
                       >
                         <div className="flex items-center space-x-3">
@@ -452,7 +445,7 @@ const Header = () => {
               </div>
             </div>
 
-            {/* Footer - Fixed at bottom */}
+            {/* Footer - Logout */}
             {user && (
               <div className="border-t border-gray-200 p-4 bg-white flex-shrink-0">
                 <button

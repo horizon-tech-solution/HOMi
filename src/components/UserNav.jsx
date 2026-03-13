@@ -9,6 +9,7 @@ const UserNav = ({ unreadCount = 0 }) => {
     { path: '/user/home', label: 'Home', icon: Home },
     { path: '/user/favorites', label: 'Favorites', icon: Heart },
     { path: '/user/history', label: 'Browse history', icon: Clock },
+    { path: '/user/messages', label: 'Messages', icon: MessageSquare },
     { path: '/user/notifications', label: 'Notifications', icon: Bell, badge: unreadCount },
     { path: '/user/settings', label: 'Settings', icon: Settings }
   ];

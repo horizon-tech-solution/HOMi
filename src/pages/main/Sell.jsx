@@ -28,7 +28,7 @@ const Sell = () => {
   };
 
   const handleGetStarted = () => {
-    navigate('/list-property');
+    navigate('/user/sell/list-property');
   };
 
   const faqs = [
