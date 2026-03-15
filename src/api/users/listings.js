@@ -13,7 +13,18 @@ export const deleteListing     = (id)       => del(`/user/listings/${id}`);
  * Uses raw fetch (not the JSON `post` helper) because the payload is FormData.
  */
 export const uploadListingPhotos = async (listingId, formData) => {
-  const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  // Token is stored as JSON: { token: '...', user: {...} } under 'user_token'
+  const getToken = () => {
+    try {
+      const stored = localStorage.getItem('user_token');
+      if (!stored) return '';
+      return JSON.parse(stored).token || '';
+    } catch {
+      return '';
+    }
+  };
+
+  const token = getToken();
   const base  = import.meta.env?.VITE_API_URL || 'http://localhost:8000/api';
 
   const res = await fetch(`${base}/user/listings/${listingId}/photos`, {

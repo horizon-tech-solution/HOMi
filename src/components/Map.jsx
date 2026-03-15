@@ -53,20 +53,16 @@ const POI_CATEGORIES = [
 ];
 const POI_EMOJI = { restaurant: '🍽️', hospital: '🏥', school: '🏫', shop: '🛒', bank: '🏦' };
 
-// ─── Listing type filter bar (bottom of map) ─────────────────────────────────
 const LISTING_FILTERS = [
-  { id: 'all',        label: 'All',        activeBg: 'linear-gradient(135deg,#D97706,#B45309)', txType: null,          propType: null         },
-  { id: 'rent',       label: 'For Rent',   activeBg: 'linear-gradient(135deg,#2563EB,#1D4ED8)', txType: 'rent',        propType: null         },
-  { id: 'sale',       label: 'For Sale',   activeBg: 'linear-gradient(135deg,#059669,#047857)', txType: 'sale',        propType: null         },
-  { id: 'land',       label: 'Land',       activeBg: 'linear-gradient(135deg,#7C3AED,#6D28D9)', txType: null,          propType: 'land'       },
-  { id: 'commercial', label: 'Commercial', activeBg: 'linear-gradient(135deg,#DC2626,#B91C1C)', txType: null,          propType: 'commercial' },
+  { id: 'all',        label: 'All',        activeBg: 'linear-gradient(135deg,#D97706,#B45309)', txType: null,   propType: null         },
+  { id: 'rent',       label: 'For Rent',   activeBg: 'linear-gradient(135deg,#2563EB,#1D4ED8)', txType: 'rent', propType: null         },
+  { id: 'sale',       label: 'For Sale',   activeBg: 'linear-gradient(135deg,#059669,#047857)', txType: 'sale', propType: null         },
+  { id: 'land',       label: 'Land',       activeBg: 'linear-gradient(135deg,#7C3AED,#6D28D9)', txType: null,   propType: 'land'       },
+  { id: 'commercial', label: 'Commercial', activeBg: 'linear-gradient(135deg,#DC2626,#B91C1C)', txType: null,   propType: 'commercial' },
 ];
 
-// ─── RapidAPI key ─────────────────────────────────────────────────────────────
 const RAPID_API_KEY = 'c8db4aa8e6msh3e685f8677a38bfp15484djsn1631b7892dec';
 
-// ─── Google Place Search via RapidAPI ────────────────────────────────────────
-// Returns array of { name, formatted_address, lat, lng, place_id, types[] }
 const googlePlaceSearch = async (query) => {
   const url = `https://google-maps-api-free.p.rapidapi.com/google-find-place-search?place=${encodeURIComponent(query)}`;
   const res = await fetch(url, {
@@ -77,8 +73,6 @@ const googlePlaceSearch = async (query) => {
   });
   if (!res.ok) throw new Error(`RapidAPI ${res.status}`);
   const data = await res.json();
-
-  // Normalise — the endpoint returns candidates[] with geometry.location
   const candidates = data?.candidates || data?.results || [];
   return candidates.map(c => ({
     name:              c.name              || c.formatted_address || query,
@@ -87,28 +81,18 @@ const googlePlaceSearch = async (query) => {
     lng:               c.geometry?.location?.lng ?? null,
     place_id:          c.place_id          || '',
     types:             c.types             || [],
-    // icon for UI — property-context tags
     icon: (() => {
-      const t = (c.types || []).join(',');
-      const name = (c.name || '').toLowerCase();
-      // Land / plot
-      if (t.includes('land') || t.includes('terrain') || t.includes('park') || t.includes('natural') || name.includes('terrain') || name.includes('plot') || name.includes('land'))
-        return 'land';
-      // Rent signals
-      if (t.includes('lodging') || t.includes('apartment') || name.includes('locat') || name.includes('rent') || name.includes('appartement'))
-        return 'rent';
-      // Commercial / office
-      if (t.includes('commercial') || t.includes('store') || t.includes('shop') || t.includes('establishment'))
-        return 'commercial';
-      // Residential / sale default
-      if (t.includes('premise') || t.includes('sublocality') || t.includes('neighborhood') || t.includes('locality'))
-        return 'area';
+      const t    = (c.types || []).join(',');
+      const name = (c.name  || '').toLowerCase();
+      if (t.includes('land') || t.includes('terrain') || t.includes('park') || name.includes('terrain') || name.includes('plot') || name.includes('land')) return 'land';
+      if (t.includes('lodging') || t.includes('apartment') || name.includes('rent') || name.includes('appartement')) return 'rent';
+      if (t.includes('commercial') || t.includes('store') || t.includes('establishment')) return 'commercial';
+      if (t.includes('premise') || t.includes('sublocality') || t.includes('neighborhood') || t.includes('locality')) return 'area';
       return 'sale';
     })(),
   })).filter(r => r.lat != null && r.lng != null);
 };
 
-// ─── Nominatim fallback (when RapidAPI fails or returns empty) ────────────────
 const nominatimSearch = async (q) => {
   const r = await fetch(
     `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5`,
@@ -124,31 +108,26 @@ const nominatimSearch = async (q) => {
     types:             [d.type],
     icon: (() => {
       const t = d.type || '';
-      if (t === 'residential' || t === 'house' || t === 'detached') return 'sale';
-      if (t === 'apartments'  || t === 'flat')                      return 'rent';
-      if (t === 'land'        || t === 'farmland' || t === 'grass') return 'land';
-      if (t === 'commercial'  || t === 'retail'   || t === 'office')return 'commercial';
-      if (t === 'suburb'      || t === 'neighbourhood' || t === 'quarter') return 'area';
+      if (t === 'residential' || t === 'house'    || t === 'detached') return 'sale';
+      if (t === 'apartments'  || t === 'flat')                         return 'rent';
+      if (t === 'land'        || t === 'farmland' || t === 'grass')    return 'land';
+      if (t === 'commercial'  || t === 'retail'   || t === 'office')   return 'commercial';
       return 'area';
     })(),
   }));
 };
 
-// ─── Unified geocode — Google first, Nominatim fallback ──────────────────────
 const geocode = async (q) => {
   try {
     const results = await googlePlaceSearch(q);
     if (results.length > 0) return results;
-    // Google returned empty — try Nominatim
     return await nominatimSearch(q);
-  } catch (err) {
-    console.warn('[Map] Google search failed, falling back to Nominatim:', err.message);
+  } catch {
     try { return await nominatimSearch(q); }
     catch { return []; }
   }
 };
 
-// ─── Reverse geocode (Nominatim — Google reverse needs paid tier) ─────────────
 const reverseGeocode = async (lat, lng) => {
   const r = await fetch(
     `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
@@ -191,12 +170,10 @@ const loadScript = (src, id, globalCheck) => new Promise((resolve, reject) => {
 // ─── Mobile Bottom Sheet Preview ─────────────────────────────────────────────
 const MobilePreview = ({ listing, onViewProperty, onClose }) => {
   if (!listing) return null;
-  const isRent = listing.listingType === 'rent' || listing.listingType === '/mo';
+  const isRent = listing.listingType === 'rent' || listing.type === 'rent';
   return (
-    <div
-      className="absolute bottom-0 left-0 right-0 z-[1000] pointer-events-auto"
-      style={{ filter: 'drop-shadow(0 -8px 32px rgba(0,0,0,0.18))' }}
-    >
+    <div className="absolute bottom-0 left-0 right-0 z-[1000] pointer-events-auto"
+      style={{ filter: 'drop-shadow(0 -8px 32px rgba(0,0,0,0.18))' }}>
       <div className="bg-white rounded-t-3xl overflow-hidden">
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 bg-gray-300 rounded-full" />
@@ -226,18 +203,14 @@ const MobilePreview = ({ listing, onViewProperty, onClose }) => {
               {listing.area      && <span>{listing.area} m²</span>}
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="self-start p-1.5 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
-          >
+          <button onClick={onClose} className="self-start p-1.5 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0">
             <X className="w-4 h-4 text-gray-400" />
           </button>
         </div>
         <div className="px-4 pb-6">
           <button
             onClick={() => onViewProperty(listing)}
-            className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold rounded-2xl text-sm shadow-lg active:scale-95 transition-transform"
-          >
+            className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold rounded-2xl text-sm shadow-lg active:scale-95 transition-transform">
             View Property →
           </button>
         </div>
@@ -256,6 +229,7 @@ const Map = ({
   selectedListingId,
   className = '',
   showControls = true,
+  showSearch = true,        // ← set false from Properties page (has its own search)
   height = '100%',
 }) => {
   const mapRef          = useRef(null);
@@ -268,6 +242,11 @@ const Map = ({
   const searchPinRef    = useRef(null);
   const searchTimerRef  = useRef(null);
   const initCalledRef   = useRef(false);
+  // Track latest center/zoom so initMap can use them even if props changed before map was ready
+  const centerRef       = useRef(center);
+  const zoomRef         = useRef(zoom);
+  // Track whether the parent has explicitly set a center (vs default)
+  const externalCenterRef = useRef(false);
 
   const [isLoading,       setIsLoading]       = useState(true);
   const [activeLayer,     setActiveLayer]     = useState('street');
@@ -277,15 +256,13 @@ const Map = ({
   const [searchQuery,     setSearchQuery]     = useState('');
   const [searchResults,   setSearchResults]   = useState([]);
   const [isSearching,     setIsSearching]     = useState(false);
-  const [searchSource,    setSearchSource]    = useState('');  // 'google' | 'osm'
+  const [searchSource,    setSearchSource]    = useState('');
   const [contextInfo,     setContextInfo]     = useState(null);
-  const [showPOIDrawer,   setShowPOIDrawer]   = useState(false);
   const [activeFilter,    setActiveFilter]    = useState('all');
   const [previewListing,  setPreviewListing]  = useState(null);
 
-  // ── CSS + Scripts → init ─────────────────────────────────────────────────
+  // ── Load Leaflet → init ──────────────────────────────────────────────────
   useEffect(() => {
-    // ── Preconnect to CDNs so DNS + TLS is resolved before scripts load ──
     ['https://unpkg.com', 'https://tile.openstreetmap.org', 'https://basemaps.cartocdn.com'].forEach(origin => {
       if (!document.querySelector(`link[rel="preconnect"][href="${origin}"]`)) {
         const l = document.createElement('link');
@@ -293,14 +270,10 @@ const Map = ({
         document.head.appendChild(l);
       }
     });
-
-    // ── Inject all CSS at once ──
     injectCSS('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',                              'leaflet-css');
     injectCSS('https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css',          'cluster-css');
     injectCSS('https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css', 'cluster-def-css');
 
-    // ── Load Leaflet first (MarkerCluster depends on it), then cluster in parallel ──
-    // If Leaflet is already loaded (e.g. another map instance), skip straight to cluster
     const leafletReady = window.L
       ? Promise.resolve()
       : loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', 'leaflet-js', 'L');
@@ -322,41 +295,69 @@ const Map = ({
     };
   }, []);
 
+  // ── Re-render markers when listings / filter / selection changes ─────────
   useEffect(() => {
-    if (mapInstanceRef.current && clusterGroupRef.current) updateMarkers();
+    if (!mapInstanceRef.current || !clusterGroupRef.current) return;
+    updateMarkers();
   }, [listings, selectedListingId, activeFilter]);
 
-  // ── Search with debounce ─────────────────────────────────────────────────
+  // ── Fly to center when parent changes it (e.g. LocationSearch pick) ──────
+  useEffect(() => {
+    centerRef.current = center;
+    zoomRef.current   = zoom;
+
+    // Never fly to the default Cameroon center — only fly on explicit user selection
+    const isDefault = center.lat === 4.0511 && center.lng === 9.7679;
+    if (isDefault) return;
+
+    if (!isFinite(center.lat) || !isFinite(center.lng)) return;
+
+    externalCenterRef.current = true;
+
+    const doFly = () => {
+      if (!mapInstanceRef.current) return;
+      try {
+        mapInstanceRef.current.flyTo([center.lat, center.lng], zoom, {
+          animate: true, duration: 1.2,
+        });
+      } catch (e) {
+        console.warn('[Map] flyTo error:', e.message);
+      }
+    };
+
+    // Defer to next tick — ensures Leaflet is initialized before we call flyTo
+    if (mapInstanceRef.current) {
+      doFly();
+    } else {
+      setTimeout(doFly, 500);
+    }
+  }, [center.lat, center.lng, zoom]);
+
+  // ── Internal search bar debounce (only used when showSearch=true) ────────
   useEffect(() => {
     if (!searchQuery.trim()) { setSearchResults([]); setSearchSource(''); return; }
     clearTimeout(searchTimerRef.current);
     searchTimerRef.current = setTimeout(async () => {
       setIsSearching(true);
       try {
-        // Try Google first — check if it actually used Google or fell back
         let usedGoogle = true;
         let results;
         try {
           results = await googlePlaceSearch(searchQuery);
-          if (results.length === 0) {
-            results  = await nominatimSearch(searchQuery);
-            usedGoogle = false;
-          }
+          if (results.length === 0) { results = await nominatimSearch(searchQuery); usedGoogle = false; }
         } catch {
-          results    = await nominatimSearch(searchQuery);
-          usedGoogle = false;
+          results    = await nominatimSearch(searchQuery); usedGoogle = false;
         }
         setSearchResults(results.slice(0, 5));
         setSearchSource(usedGoogle ? 'google' : 'osm');
       } catch {
-        setSearchResults([]);
-        setSearchSource('');
+        setSearchResults([]); setSearchSource('');
       }
       setIsSearching(false);
     }, 400);
   }, [searchQuery]);
 
-  // ── Global handlers ──────────────────────────────────────────────────────
+  // ── Global click handler for popups ─────────────────────────────────────
   useEffect(() => {
     window.__mapViewProperty = (id) => {
       const listing = listings.find(x => String(x.id) === String(id));
@@ -365,10 +366,7 @@ const Map = ({
       else if (onMarkerClick) onMarkerClick(listing);
     };
     window.__mapListingClick = window.__mapViewProperty;
-    return () => {
-      delete window.__mapViewProperty;
-      delete window.__mapListingClick;
-    };
+    return () => { delete window.__mapViewProperty; delete window.__mapListingClick; };
   }, [listings, onViewProperty, onMarkerClick]);
 
   // ── Init Map ─────────────────────────────────────────────────────────────
@@ -389,13 +387,11 @@ const Map = ({
       zoomDelta:           0.5,
       wheelPxPerZoomLevel: 60,
       preferCanvas:        true,
-    }).setView([center.lat, center.lng], zoom);
+    }).setView([centerRef.current.lat, centerRef.current.lng], zoomRef.current);
 
     const def = TILE_LAYERS.street;
     tileLayerRef.current = L.tileLayer(def.url, {
-      attribution: def.attribution,
-      maxZoom:     def.maxZoom,
-      crossOrigin: true,
+      attribution: def.attribution, maxZoom: def.maxZoom, crossOrigin: true,
     }).addTo(map);
 
     clusterGroupRef.current = L.markerClusterGroup({
@@ -405,10 +401,8 @@ const Map = ({
       iconCreateFunction: (cluster) => {
         const n = cluster.getChildCount();
         return L.divIcon({
-          html:       `<div class="homi-cluster">${n}</div>`,
-          className:  '',
-          iconSize:   [46, 46],
-          iconAnchor: [23, 23],
+          html: `<div class="homi-cluster">${n}</div>`,
+          className: '', iconSize: [46, 46], iconAnchor: [23, 23],
         });
       },
     });
@@ -423,11 +417,7 @@ const Map = ({
         setContextInfo({ lat: e.latlng.lat.toFixed(5), lng: e.latlng.lng.toFixed(5), address: 'Unknown location' });
       }
     });
-    map.on('click', () => {
-      setContextInfo(null);
-      setShowLayerPicker(false);
-      setPreviewListing(null);
-    });
+    map.on('click', () => { setContextInfo(null); setShowLayerPicker(false); setPreviewListing(null); });
 
     mapInstanceRef.current = map;
     setIsLoading(false);
@@ -435,7 +425,7 @@ const Map = ({
     setTimeout(() => map.invalidateSize(), 100);
   };
 
-  // ─── Marker HTML ─────────────────────────────────────────────────────────
+  // ─── Marker HTML ──────────────────────────────────────────────────────────
   const buildMarkerHtml = (listing, isSelected) => {
     const priceInK = listing.price ? `${(listing.price / 1000).toFixed(0)}K` : 'N/A';
     const bg    = isSelected ? 'linear-gradient(135deg,#92400E,#78350F)' : 'linear-gradient(135deg,#D97706,#B45309)';
@@ -465,17 +455,17 @@ const Map = ({
       </div>`;
   };
 
-  // ─── Popup HTML (desktop only) ────────────────────────────────────────────
+  // ─── Popup HTML ───────────────────────────────────────────────────────────
   const buildPopupHtml = (listing) => `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-width:280px;">
       ${listing.image ? `
         <div style="position:relative;">
           <img src="${listing.image}" alt="${listing.title}"
             style="width:100%;height:178px;object-fit:cover;display:block;"/>
-          ${listing.type ? `<span style="position:absolute;top:10px;left:10px;
+          ${listing.listingType ? `<span style="position:absolute;top:10px;left:10px;
             background:rgba(217,119,6,0.92);color:white;font-size:10px;font-weight:700;
             padding:3px 9px;border-radius:20px;text-transform:uppercase;">
-            ${listing.listingType || listing.type}</span>` : ''}
+            ${listing.listingType}</span>` : ''}
         </div>` : ''}
       <div style="padding:14px 16px 16px;">
         <h3 style="margin:0 0 7px;font-size:15px;font-weight:700;color:#111827;line-height:1.35;">${listing.title}</h3>
@@ -516,18 +506,17 @@ const Map = ({
     const bounds = [];
     const mobile = window.innerWidth < 768;
 
-    // Apply listing type filter
     const filtered = activeFilter === 'all' ? listings : listings.filter(l => {
       const f = LISTING_FILTERS.find(x => x.id === activeFilter);
       if (!f) return true;
-      if (f.txType)   return (l.listingType || l.transaction_type || '').toLowerCase() === f.txType;
+      if (f.txType)   return (l.listingType || l.transaction_type || l.type || '').toLowerCase().includes(f.txType);
       if (f.propType) return (l.propertyType || l.property_type   || '').toLowerCase() === f.propType;
       return true;
     });
 
     filtered.forEach((listing) => {
-      const lat = listing.lat || listing.coordinates?.lat;
-      const lng = listing.lng || listing.coordinates?.lng;
+      const lat = listing.lat ?? listing.coordinates?.lat;
+      const lng = listing.lng ?? listing.coordinates?.lng;
       if (lat == null || lng == null) return;
 
       bounds.push([lat, lng]);
@@ -552,23 +541,23 @@ const Map = ({
         });
       } else {
         marker.bindPopup(buildPopupHtml(listing), { maxWidth: 320, className: 'homi-popup' });
-        marker.on('click', (e) => {
-          L.DomEvent.stopPropagation(e);
-          onMarkerClick?.(listing);
-        });
-        if (isSelected) {
-          cluster.on('animationend', () => marker.openPopup());
-        }
+        marker.on('click', (e) => { L.DomEvent.stopPropagation(e); onMarkerClick?.(listing); });
+        if (isSelected) cluster.on('animationend', () => marker.openPopup());
       }
 
       cluster.addLayer(marker);
     });
 
-    // Recenter only on filtered set
-    if (bounds.length > 1) {
-      map.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 });
-    } else if (bounds.length === 1) {
-      map.setView(bounds[0], 15);
+    // Only auto-fit when no external center is controlling the view
+    if (!externalCenterRef.current) {
+      if (bounds.length > 1) {
+        try {
+          const b = window.L.latLngBounds(bounds);
+          if (b.isValid()) map.fitBounds(b, { padding: [80, 80], maxZoom: 15 });
+        } catch {}
+      } else if (bounds.length === 1) {
+        map.setView(bounds[0], 15);
+      }
     }
   };
 
@@ -607,7 +596,7 @@ const Map = ({
       return;
     }
     setPOILoading(prev => new Set(prev).add(cat.id));
-    const pois = await fetchPOIs(map.getBounds(), cat.osmTag, cat.osmValue);
+    const pois  = await fetchPOIs(map.getBounds(), cat.osmTag, cat.osmValue);
     const layer = L.layerGroup();
     pois.forEach((poi) => {
       const icon = L.divIcon({
@@ -620,9 +609,9 @@ const Map = ({
         .bindPopup(`
           <div style="font-family:system-ui;padding:6px;min-width:160px;">
             <div style="font-weight:700;font-size:14px;margin-bottom:4px;">${poi.tags?.name || cat.label}</div>
-            ${poi.tags?.['addr:street']  ? `<div style="font-size:12px;color:#6B7280;">${poi.tags['addr:street']}</div>` : ''}
-            ${poi.tags?.opening_hours    ? `<div style="font-size:12px;color:#10B981;margin-top:4px;">🕐 ${poi.tags.opening_hours}</div>` : ''}
-            ${poi.tags?.phone            ? `<div style="font-size:12px;color:#3B82F6;margin-top:3px;">📞 ${poi.tags.phone}</div>` : ''}
+            ${poi.tags?.['addr:street'] ? `<div style="font-size:12px;color:#6B7280;">${poi.tags['addr:street']}</div>` : ''}
+            ${poi.tags?.opening_hours   ? `<div style="font-size:12px;color:#10B981;margin-top:4px;">🕐 ${poi.tags.opening_hours}</div>` : ''}
+            ${poi.tags?.phone           ? `<div style="font-size:12px;color:#3B82F6;margin-top:3px;">📞 ${poi.tags.phone}</div>` : ''}
           </div>`, { maxWidth: 220, className: 'homi-popup' })
         .addTo(layer);
     });
@@ -632,17 +621,13 @@ const Map = ({
     setPOILoading(prev => { const s = new Set(prev); s.delete(cat.id); return s; });
   }, [activePOIs]);
 
-  // ─── Place a search pin on the map ───────────────────────────────────────
+  // ─── Search pin ───────────────────────────────────────────────────────────
   const selectSearchResult = (result) => {
     if (!mapInstanceRef.current || !window.L) return;
-    const L   = window.L;
-    const lat = result.lat;
-    const lng = result.lng;
-
-    mapInstanceRef.current.flyTo([lat, lng], 16, { animate: true, duration: 1.2 });
-
+    const L = window.L;
+    mapInstanceRef.current.flyTo([result.lat, result.lng], 16, { animate: true, duration: 1.2 });
     if (searchPinRef.current) mapInstanceRef.current.removeLayer(searchPinRef.current);
-    searchPinRef.current = L.marker([lat, lng], {
+    searchPinRef.current = L.marker([result.lat, result.lng], {
       icon: L.divIcon({
         html: `<div style="display:flex;flex-direction:column;align-items:center;">
           <div style="background:#1D4ED8;color:white;padding:6px 11px;border-radius:9px;
@@ -657,7 +642,6 @@ const Map = ({
         className: '', iconSize: [200, 60], iconAnchor: [100, 60],
       })
     }).addTo(mapInstanceRef.current);
-
     setSearchQuery(result.name);
     setSearchResults([]);
     setSearchSource('');
@@ -672,7 +656,7 @@ const Map = ({
       const b = clusterGroupRef.current.getBounds();
       if (b.isValid()) { mapInstanceRef.current.flyToBounds(b, { padding: [80, 80], maxZoom: 15, animate: true, duration: 1 }); return; }
     }
-    mapInstanceRef.current.flyTo([center.lat, center.lng], zoom, { animate: true, duration: 1 });
+    mapInstanceRef.current.flyTo([centerRef.current.lat, centerRef.current.lng], zoomRef.current, { animate: true, duration: 1 });
   };
   const handleMyLocation = () => {
     if (!navigator.geolocation || !mapInstanceRef.current || !window.L) return;
@@ -697,95 +681,90 @@ const Map = ({
     }, (err) => console.warn('Geolocation error:', err));
   };
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className={`relative overflow-hidden ${className}`} style={{ height }}>
       <div ref={mapRef} style={{ width: '100%', height: '100%', position: 'relative', zIndex: 0 }} />
 
       {showControls && !isLoading && (<>
 
-        {/* ── Search bar ── */}
-        <div className="absolute top-3 left-3 z-[1000]" style={{ maxWidth: 310, width: 'calc(100% - 64px)' }}>
-          <div className="relative">
-            <div className="flex items-center bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-              <Search className="w-4 h-4 text-gray-400 ml-3 flex-shrink-0" />
-              <input
-                type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search a location…"
-                className="flex-1 px-3 py-3 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent"
-              />
-              {isSearching && <Loader2 className="w-4 h-4 text-amber-500 mr-3 flex-shrink-0 animate-spin" />}
-              {searchQuery && !isSearching && (
-                <button className="mr-3 flex-shrink-0" onClick={() => {
-                  setSearchQuery(''); setSearchResults([]); setSearchSource('');
-                  if (searchPinRef.current) mapInstanceRef.current?.removeLayer(searchPinRef.current);
-                }}>
-                  <X className="w-4 h-4 text-gray-400 hover:text-gray-700" />
-                </button>
+        {/* ── Search bar — only shown when showSearch=true ── */}
+        {showSearch && (
+          <div className="absolute top-3 left-3 z-[1000]" style={{ maxWidth: 310, width: 'calc(100% - 64px)' }}>
+            <div className="relative">
+              <div className="flex items-center bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+                <Search className="w-4 h-4 text-gray-400 ml-3 flex-shrink-0" />
+                <input
+                  type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Search a location…"
+                  className="flex-1 px-3 py-3 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent"
+                />
+                {isSearching && <Loader2 className="w-4 h-4 text-amber-500 mr-3 flex-shrink-0 animate-spin" />}
+                {searchQuery && !isSearching && (
+                  <button className="mr-3 flex-shrink-0" onClick={() => {
+                    setSearchQuery(''); setSearchResults([]); setSearchSource('');
+                    if (searchPinRef.current) mapInstanceRef.current?.removeLayer(searchPinRef.current);
+                  }}>
+                    <X className="w-4 h-4 text-gray-400 hover:text-gray-700" />
+                  </button>
+                )}
+              </div>
+
+              {searchResults.length > 0 && (
+                <div className="absolute top-full mt-1.5 left-0 right-0 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[1001]">
+                  <div className="flex items-center justify-between px-4 py-1.5 bg-gray-50 border-b border-gray-100">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Results</span>
+                    {searchSource === 'google' ? (
+                      <span className="flex items-center gap-1 text-[10px] font-semibold text-blue-600">
+                        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none">
+                          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+                          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                        </svg>
+                        Google
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold text-gray-400">OpenStreetMap</span>
+                    )}
+                  </div>
+                  {searchResults.map((r, i) => {
+                    const tagMeta = {
+                      rent:       { label: 'For Rent',   bg: '#FEF3C7', color: '#92400E', border: '#FCD34D' },
+                      sale:       { label: 'For Sale',   bg: '#D1FAE5', color: '#065F46', border: '#6EE7B7' },
+                      land:       { label: 'Land',       bg: '#E0F2FE', color: '#075985', border: '#7DD3FC' },
+                      commercial: { label: 'Commercial', bg: '#EDE9FE', color: '#4C1D95', border: '#C4B5FD' },
+                      area:       { label: 'Area',       bg: '#F3F4F6', color: '#374151', border: '#D1D5DB' },
+                    };
+                    const tag = tagMeta[r.icon] || tagMeta.area;
+                    return (
+                      <button key={i} onClick={() => selectSearchResult(r)}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-50 transition-colors text-left border-b border-gray-50 last:border-0">
+                        <span style={{ background: tag.bg, color: tag.color, border: `1px solid ${tag.border}` }}
+                          className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap">
+                          {tag.label}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold text-gray-800 leading-tight truncate">{r.name}</div>
+                          {r.formatted_address && r.formatted_address !== r.name && (
+                            <div className="text-xs text-gray-400 mt-0.5 truncate">{r.formatted_address}</div>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
-
-            {/* ── Search results dropdown ── */}
-            {searchResults.length > 0 && (
-              <div className="absolute top-full mt-1.5 left-0 right-0 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[1001]">
-                {/* Source badge */}
-                <div className="flex items-center justify-between px-4 py-1.5 bg-gray-50 border-b border-gray-100">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Results</span>
-                  {searchSource === 'google' ? (
-                    <span className="flex items-center gap-1 text-[10px] font-semibold text-blue-600">
-                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none">
-                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
-                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                      </svg>
-                      Google
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-semibold text-gray-400">OpenStreetMap</span>
-                  )}
-                </div>
-
-                {searchResults.map((r, i) => {
-                  // Property-context tag badge
-                  const tagMeta = {
-                    rent:       { label: 'For Rent',   bg: '#FEF3C7', color: '#92400E', border: '#FCD34D' },
-                    sale:       { label: 'For Sale',   bg: '#D1FAE5', color: '#065F46', border: '#6EE7B7' },
-                    land:       { label: 'Land',       bg: '#E0F2FE', color: '#075985', border: '#7DD3FC' },
-                    commercial: { label: 'Commercial', bg: '#EDE9FE', color: '#4C1D95', border: '#C4B5FD' },
-                    area:       { label: 'Area',       bg: '#F3F4F6', color: '#374151', border: '#D1D5DB' },
-                  };
-                  const tag = tagMeta[r.icon] || tagMeta.area;
-                  return (
-                    <button key={i} onClick={() => selectSearchResult(r)}
-                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-50 transition-colors text-left border-b border-gray-50 last:border-0">
-                      {/* Tag badge */}
-                      <span style={{ background: tag.bg, color: tag.color, border: `1px solid ${tag.border}` }}
-                        className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap">
-                        {tag.label}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-gray-800 leading-tight truncate">{r.name}</div>
-                        {r.formatted_address && r.formatted_address !== r.name && (
-                          <div className="text-xs text-gray-400 mt-0.5 truncate">{r.formatted_address}</div>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
           </div>
-        </div>
+        )}
 
         {/* ── Right controls ── */}
         <div className="absolute top-3 right-3 flex flex-col gap-2 z-[1000]">
           <div className="relative">
-            <button
-              onClick={() => setShowLayerPicker(p => !p)}
+            <button onClick={() => setShowLayerPicker(p => !p)}
               className="w-11 h-11 bg-white rounded-xl shadow-lg hover:shadow-xl hover:bg-gray-50 flex items-center justify-center transition-all border border-gray-200"
-              aria-label="Map style"
-            >
+              aria-label="Map style">
               <Layers className="w-5 h-5 text-gray-700" />
             </button>
             {showLayerPicker && (
@@ -805,7 +784,6 @@ const Map = ({
               </div>
             )}
           </div>
-
           <button onClick={handleZoomIn}
             className="w-11 h-11 bg-white rounded-xl shadow-lg hover:shadow-xl hover:bg-gray-50 flex items-center justify-center transition-all border border-gray-200">
             <ZoomIn className="w-5 h-5 text-gray-700" />
@@ -831,12 +809,9 @@ const Map = ({
             {LISTING_FILTERS.map(f => {
               const isActive = activeFilter === f.id;
               return (
-                <button key={f.id}
-                  onClick={() => setActiveFilter(f.id)}
+                <button key={f.id} onClick={() => setActiveFilter(f.id)}
                   className="px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all active:scale-95"
-                  style={isActive
-                    ? { background: f.activeBg, color: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }
-                    : { color: '#6B7280' }}>
+                  style={isActive ? { background: f.activeBg, color: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.18)' } : { color: '#6B7280' }}>
                   {f.label}
                 </button>
               );
@@ -850,12 +825,9 @@ const Map = ({
             {LISTING_FILTERS.map(f => {
               const isActive = activeFilter === f.id;
               return (
-                <button key={f.id}
-                  onClick={() => setActiveFilter(f.id)}
+                <button key={f.id} onClick={() => setActiveFilter(f.id)}
                   className="px-4 py-1.5 rounded-xl text-xs font-bold transition-all"
-                  style={isActive
-                    ? { background: f.activeBg, color: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }
-                    : { color: '#6B7280' }}>
+                  style={isActive ? { background: f.activeBg, color: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.18)' } : { color: '#6B7280' }}>
                   {f.label}
                 </button>
               );
@@ -947,16 +919,11 @@ const Map = ({
         .leaflet-control-attribution {
           background:rgba(255,255,255,0.45) !important;
           border-radius:6px 0 0 0 !important;
-          font-size:8px !important;
-          padding:1px 5px !important;
-          color:#aaa !important;
-          opacity:0.55 !important;
-          transition:opacity 0.2s;
+          font-size:8px !important; padding:1px 5px !important;
+          color:#aaa !important; opacity:0.55 !important; transition:opacity 0.2s;
         }
         .leaflet-control-attribution:hover {
-          opacity:1 !important;
-          background:rgba(255,255,255,0.95) !important;
-          color:#555 !important;
+          opacity:1 !important; background:rgba(255,255,255,0.95) !important; color:#555 !important;
         }
         .leaflet-control-attribution a { color:#aaa !important; }
         .leaflet-control-attribution:hover a { color:#2563EB !important; }

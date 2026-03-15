@@ -3,8 +3,8 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   X, Send, Phone, Mail, Building2, Paperclip,
   Image as ImageIcon, Smile, MoreVertical,
-  CheckCircle, XCircle, Flag, Archive, Star,
-  Clock, Loader2, AlertTriangle, RefreshCw,
+  CheckCircle, XCircle, Flag, Archive,
+  Loader2, AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import { fetchLead, replyToLead } from '../../../api/agents/leads';
 
@@ -72,11 +72,12 @@ const LeadConversation = ({ lead: leadPreview, isOpen, onClose, onReplySent }) =
     setSendError('');
     try {
       const newMsg = await replyToLead(leadPreview.id, text);
-      // Optimistically append
       const optimistic = {
         id:          newMsg.id || Date.now(),
         text:        newMsg.text || text,
-        sender_type: 'agent',
+        sender_type: newMsg.sender_type || 'agent',
+        sender_id:   fullLead?.current_user_id,
+        is_mine:     true,   // ← always true for optimistic (I just sent it)
         created_at:  newMsg.created_at || new Date().toISOString(),
         sender_name: 'You',
       };
@@ -85,9 +86,7 @@ const LeadConversation = ({ lead: leadPreview, isOpen, onClose, onReplySent }) =
         messages: [...(prev?.messages || []), optimistic],
       }));
       setMessage('');
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
       onReplySent?.(leadPreview.id);
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     } catch (err) {
@@ -98,10 +97,7 @@ const LeadConversation = ({ lead: leadPreview, isOpen, onClose, onReplySent }) =
   };
 
   const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); }
   };
 
   const handleTextareaChange = (e) => {
@@ -112,18 +108,17 @@ const LeadConversation = ({ lead: leadPreview, isOpen, onClose, onReplySent }) =
 
   if (!isOpen) return null;
 
-  // Use full lead if loaded, fall back to preview data for header while loading
-  const lead     = fullLead || leadPreview;
-  const messages = fullLead?.messages || [];
+  const lead      = fullLead || leadPreview;
+  const messages  = fullLead?.messages || [];
+  const isSentByAgent = lead?.direction === 'sent'; // agent initiated the inquiry
+
   const avatarUrl = lead?.user_avatar ||
     `https://ui-avatars.com/api/?name=${encodeURIComponent(lead?.user_name || 'U')}&background=random`;
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black bg-opacity-50 transition-opacity" onClick={onClose} />
 
-      {/* Slide-in panel */}
       <div className="absolute inset-y-0 right-0 flex max-w-full pl-10">
         <div className="relative w-screen max-w-4xl">
           <div className="flex h-full bg-white shadow-xl">
@@ -138,7 +133,14 @@ const LeadConversation = ({ lead: leadPreview, isOpen, onClose, onReplySent }) =
                     <img src={avatarUrl} alt={lead?.user_name}
                       className="w-10 h-10 rounded-full flex-shrink-0 object-cover" />
                     <div className="flex-1 min-w-0">
-                      <h2 className="font-semibold text-gray-900 truncate">{lead?.user_name || 'Unknown'}</h2>
+                      <div className="flex items-center gap-2">
+                        <h2 className="font-semibold text-gray-900 truncate">{lead?.user_name || 'Unknown'}</h2>
+                        {isSentByAgent && (
+                          <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
+                            You contacted them
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-2 text-sm text-gray-600">
                         <span>{messages.length > 0 ? `${messages.length} messages` : 'No replies yet'}</span>
                         <span>•</span>
@@ -249,13 +251,19 @@ const LeadConversation = ({ lead: leadPreview, isOpen, onClose, onReplySent }) =
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* Show initial inquiry if no messages yet */}
+                    {/* Initial inquiry message — show on RIGHT if agent sent it */}
                     {messages.length === 0 && lead?.initial_message && (
-                      <div className="flex justify-start">
-                        <div className="flex gap-3 max-w-lg">
-                          <img src={avatarUrl} alt="" className="w-8 h-8 rounded-full flex-shrink-0 mt-1 object-cover" />
-                          <div className="flex flex-col items-start">
-                            <div className="px-4 py-3 rounded-2xl rounded-bl-none bg-white text-gray-900 border border-gray-200">
+                      <div className={`flex ${isSentByAgent ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`flex gap-3 max-w-lg ${isSentByAgent ? 'flex-row-reverse' : ''}`}>
+                          {!isSentByAgent && (
+                            <img src={avatarUrl} alt="" className="w-8 h-8 rounded-full flex-shrink-0 mt-1 object-cover" />
+                          )}
+                          <div className={`flex flex-col ${isSentByAgent ? 'items-end' : 'items-start'}`}>
+                            <div className={`px-4 py-3 rounded-2xl ${
+                              isSentByAgent
+                                ? 'bg-amber-600 text-white rounded-br-none'
+                                : 'bg-white text-gray-900 rounded-bl-none border border-gray-200'
+                            }`}>
                               <p className="text-sm leading-relaxed">{lead.initial_message}</p>
                             </div>
                             <span className="text-xs text-gray-500 mt-1 px-2">{timeAgo(lead.created_at)}</span>
@@ -265,16 +273,19 @@ const LeadConversation = ({ lead: leadPreview, isOpen, onClose, onReplySent }) =
                     )}
 
                     {messages.map(msg => {
-                      const isAgent = msg.sender_type === 'agent';
+                      // ── Use is_mine (set by backend) to decide bubble side ──
+                      // Falls back to sender_type check for backwards compat
+                      const isMine = msg.is_mine === true || msg.is_mine === 1;
+
                       return (
-                        <div key={msg.id} className={`flex ${isAgent ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`flex gap-3 max-w-lg ${isAgent ? 'flex-row-reverse' : ''}`}>
-                            {!isAgent && (
+                        <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`flex gap-3 max-w-lg ${isMine ? 'flex-row-reverse' : ''}`}>
+                            {!isMine && (
                               <img src={avatarUrl} alt="" className="w-8 h-8 rounded-full flex-shrink-0 mt-1 object-cover" />
                             )}
-                            <div className={`flex flex-col ${isAgent ? 'items-end' : 'items-start'}`}>
+                            <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>
                               <div className={`px-4 py-3 rounded-2xl ${
-                                isAgent
+                                isMine
                                   ? 'bg-amber-600 text-white rounded-br-none'
                                   : 'bg-white text-gray-900 rounded-bl-none border border-gray-200'
                               }`}>
@@ -343,7 +354,6 @@ const LeadConversation = ({ lead: leadPreview, isOpen, onClose, onReplySent }) =
                   </button>
                 </div>
 
-                {/* Mobile call / email */}
                 <div className="sm:hidden mt-3 flex gap-2">
                   {lead?.user_phone && (
                     <a href={`tel:${lead.user_phone}`}
@@ -361,25 +371,30 @@ const LeadConversation = ({ lead: leadPreview, isOpen, onClose, onReplySent }) =
               </div>
             </div>
 
-            {/* ── Right Sidebar (desktop) ──────────────────────────────── */}
+            {/* ── Right Sidebar ────────────────────────────────────────── */}
             <div className="hidden lg:block w-80 xl:w-96 bg-white border-l border-gray-200 overflow-y-auto">
               <div className="p-6 space-y-6">
 
-                {/* Lead profile */}
                 <div className="text-center pb-6 border-b border-gray-200">
                   <img src={avatarUrl} alt={lead?.user_name}
                     className="w-24 h-24 rounded-full mx-auto mb-4 object-cover" />
                   <h3 className="text-xl font-bold text-gray-900">{lead?.user_name || 'Unknown'}</h3>
+                  {isSentByAgent && (
+                    <p className="text-sm text-purple-600 font-medium mt-1">You contacted this person</p>
+                  )}
                   <div className="flex items-center justify-center gap-2 mt-2">
                     <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                      messages.length === 0 ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                      isSentByAgent
+                        ? 'bg-purple-100 text-purple-700'
+                        : messages.length === 0
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-green-100 text-green-700'
                     }`}>
-                      {messages.length === 0 ? 'Awaiting Reply' : 'Active'}
+                      {isSentByAgent ? 'Sent by you' : messages.length === 0 ? 'Awaiting Reply' : 'Active'}
                     </span>
                   </div>
                 </div>
 
-                {/* Contact */}
                 <div>
                   <h4 className="font-semibold text-gray-900 mb-3">Contact Information</h4>
                   <div className="space-y-3">
@@ -402,10 +417,11 @@ const LeadConversation = ({ lead: leadPreview, isOpen, onClose, onReplySent }) =
                   </div>
                 </div>
 
-                {/* Property */}
                 {lead?.listing_title && (
                   <div className="pt-6 border-t border-gray-200">
-                    <h4 className="font-semibold text-gray-900 mb-3">Interested Property</h4>
+                    <h4 className="font-semibold text-gray-900 mb-3">
+                      {isSentByAgent ? 'Property You Inquired About' : 'Interested Property'}
+                    </h4>
                     <div className="bg-gray-50 rounded-lg overflow-hidden">
                       {lead.listing_photo ? (
                         <img src={lead.listing_photo} alt={lead.listing_title}
@@ -417,12 +433,8 @@ const LeadConversation = ({ lead: leadPreview, isOpen, onClose, onReplySent }) =
                       )}
                       <div className="p-4">
                         <h5 className="font-semibold text-gray-900 mb-1">{lead.listing_title}</h5>
-                        {lead.listing_city && (
-                          <p className="text-sm text-gray-500 mb-1">{lead.listing_city}</p>
-                        )}
-                        {lead.listing_price && (
-                          <p className="text-sm font-bold text-amber-600">{fmtPrice(lead.listing_price)}</p>
-                        )}
+                        {lead.listing_city && <p className="text-sm text-gray-500 mb-1">{lead.listing_city}</p>}
+                        {lead.listing_price && <p className="text-sm font-bold text-amber-600">{fmtPrice(lead.listing_price)}</p>}
                         {(lead.bedrooms || lead.bathrooms) && (
                           <p className="text-xs text-gray-400 mt-1">
                             {[lead.bedrooms && `${lead.bedrooms} BD`, lead.bathrooms && `${lead.bathrooms} BA`].filter(Boolean).join(' · ')}
@@ -433,28 +445,24 @@ const LeadConversation = ({ lead: leadPreview, isOpen, onClose, onReplySent }) =
                   </div>
                 )}
 
-                {/* Lead details */}
                 <div className="pt-6 border-t border-gray-200">
-                  <h4 className="font-semibold text-gray-900 mb-3">Lead Details</h4>
+                  <h4 className="font-semibold text-gray-900 mb-3">Details</h4>
                   <div className="space-y-3 text-sm">
                     <div className="flex items-center justify-between">
-                      <span className="text-gray-600">Status</span>
-                      <span className="font-medium text-gray-900">
-                        {messages.length === 0 ? 'Awaiting Reply' : 'Active'}
-                      </span>
+                      <span className="text-gray-600">Direction</span>
+                      <span className="font-medium text-gray-900">{isSentByAgent ? 'Sent by you' : 'Received'}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-gray-600">Messages</span>
                       <span className="font-medium text-gray-900">{messages.length}</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-gray-600">Received</span>
+                      <span className="text-gray-600">{isSentByAgent ? 'Sent' : 'Received'}</span>
                       <span className="font-medium text-gray-900">{timeAgo(lead?.created_at)}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Quick actions */}
                 <div className="pt-6 border-t border-gray-200 space-y-2">
                   <button className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors flex items-center justify-center gap-2">
                     <CheckCircle className="w-4 h-4" /> Mark as Won

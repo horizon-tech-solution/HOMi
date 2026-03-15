@@ -3,15 +3,18 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   X, ChevronLeft, ChevronRight, MapPin, Bed, Bath,
-  Maximize, Share2, Heart, Phone, Mail, CheckCircle2,
+  Maximize, Share2, Heart, Phone, CheckCircle2,
   Calendar, Car, Zap, Home, TrendingUp, Building2,
-  Layers, Sofa, MessageSquare, ExternalLink, User
+  Layers, Sofa, MessageSquare, ExternalLink, User, Loader2, Flag
 } from 'lucide-react';
 import Map from '../../../components/Map';
 import ShareModal from '../../../components/ShareModal';
 import SendMessageModal from '../../../components/SendMessageModal';
+import ReportModal from '../../../components/ReportModal';
 import { useFavorites } from '../../../hooks/useFavorites.jsx';
-import { useUserAuth } from '../../../context/UserAuthContext';
+import { useUserAuth  } from '../../../context/UserAuthContext';
+import { useAgentAuth } from '../../../context/AgentAuthContext';
+import { fetchProperty } from '../../../api/public/properties';
 
 // ─── WhatsApp SVG ─────────────────────────────────────────────────────────────
 const WaIcon = ({ className = 'w-4 h-4' }) => (
@@ -19,6 +22,9 @@ const WaIcon = ({ className = 'w-4 h-4' }) => (
     <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
   </svg>
 );
+
+// ─── strip "null" strings the backend sometimes returns ──────────────────────
+const clean = (v) => (v && v !== 'null' && v !== '' ? v : null);
 
 // ─── Field normaliser ─────────────────────────────────────────────────────────
 const normalise = (raw) => {
@@ -46,22 +52,17 @@ const normalise = (raw) => {
     txType === 'For Sale' ? 'For Sale' :
     txType === 'For Rent' ? 'For Rent' : txType || 'For Sale';
 
-  const ownerName     = raw.owner_name     || raw.agent_name     || raw.agentName     || null;
-  const ownerAvatar   = raw.owner_avatar   || raw.agent_photo    || raw.agentPhoto    || null;
-
-  // ── Phone: strip "null" strings, fallback chain ──────────────────────────
-  const rawPhone = raw.owner_phone || raw.agent_phone || raw.agentPhone || null;
-  const ownerPhone = rawPhone && rawPhone !== 'null' && rawPhone !== '' ? rawPhone : null;
-
-  // ── WhatsApp: prefer owner_whatsapp, fallback to phone ───────────────────
-  const rawWa = raw.owner_whatsapp || raw.agent_whatsapp || raw.agentWhatsapp || null;
-  const ownerWa = (rawWa && rawWa !== 'null' && rawWa !== '') ? rawWa : ownerPhone;
-
-  const ownerVerified = raw.owner_verified ?? raw.agent_verified ?? raw.agentVerified ?? true;
-  const ownerRole     = raw.owner_role     || raw.agent_role     || raw.agentRole     || 'agent';
-  const ownerAgency   = raw.agency_name    || null;
-  const ownerBio      = raw.owner_bio      || raw.agent_bio      || raw.agentBio      || null;
-  const ownerId       = raw.owner_id       || null;
+  // ── owner fields — exactly as returned by /public/properties/:id ──────────
+  const ownerName   = clean(raw.owner_name)   || null;
+  const ownerAvatar = clean(raw.owner_avatar) || null;
+  const ownerPhone  = clean(raw.owner_phone)  || null;
+  // whatsapp: prefer owner_whatsapp, fall back to phone
+  const ownerWa     = clean(raw.owner_whatsapp) ?? ownerPhone;
+  const ownerVerified = Boolean(raw.owner_verified);
+  const ownerRole     = raw.owner_role  || 'agent';
+  const ownerAgency   = clean(raw.agency_name) || null;
+  const ownerBio      = clean(raw.owner_bio)   || null;
+  const ownerId       = raw.owner_id           || null;
 
   const parkingVal   = raw.parking   != null ? Number(raw.parking)   : null;
   const generatorVal = raw.generator != null ? Number(raw.generator) : null;
@@ -73,9 +74,8 @@ const normalise = (raw) => {
 
   return {
     id: raw.id, title: raw.title || '—', description: raw.description || '',
-    price:        raw.price     != null ? Number(raw.price)     : null,
-    location, address: raw.address || '', city: raw.city || '',
-    region: raw.region || '', neighborhood: raw.neighborhood || '',
+    price:    raw.price    != null ? Number(raw.price)    : null,
+    location, address: raw.address || '', city: raw.city || '', region: raw.region || '',
     bedrooms:  raw.bedrooms  != null ? Number(raw.bedrooms)  : null,
     bathrooms: raw.bathrooms != null ? Number(raw.bathrooms) : null,
     area:      raw.area      != null ? Number(raw.area)      : null,
@@ -83,12 +83,12 @@ const normalise = (raw) => {
     listingType,
     yearBuilt:   raw.year_built   || raw.yearBuilt   || '',
     furnished,
-    floor:       raw.floor       != null ? String(raw.floor)        : '',
-    totalFloors: raw.total_floors!= null ? String(raw.total_floors) : '',
+    floor:       raw.floor        != null ? String(raw.floor)        : '',
+    totalFloors: raw.total_floors != null ? String(raw.total_floors) : '',
     parking: parkingVal, generator: generatorVal, status: raw.status || null,
     images,
-    lat: raw.lat || (raw.coordinates ? parseFloat(raw.coordinates.split(',')[0]) : null) || 4.0511,
-    lng: raw.lng || (raw.coordinates ? parseFloat(raw.coordinates.split(',')[1]) : null) || 9.7679,
+    lat: raw.lat || 4.0511,
+    lng: raw.lng || 9.7679,
     ownerId, ownerName, ownerAvatar, ownerPhone, ownerWa,
     ownerVerified, ownerRole, ownerAgency, ownerBio,
   };
@@ -101,13 +101,31 @@ const PropertyDetails = ({ listing: rawListing, isOpen, onClose }) => {
   const [mounted,           setMounted]           = useState(false);
   const [shareOpen,         setShareOpen]         = useState(false);
   const [msgOpen,           setMsgOpen]           = useState(false);
+  const [reportOpen,        setReportOpen]        = useState(false);
   const [heartAnim,         setHeartAnim]         = useState(false);
+  const [fullData,          setFullData]          = useState(null);
+  const [detailLoading,     setDetailLoading]     = useState(false);
 
   const { user }                                = useUserAuth();
+  const { agent }                               = useAgentAuth();
+  const activeUser = user || agent;             // whoever is logged in
   const { isFavorited, toggle: toggleFavorite } = useFavorites();
   const favorited = rawListing ? isFavorited(rawListing.id) : false;
-  const listing   = normalise(rawListing);
   const navigate  = useNavigate();
+
+  // merge: fullData wins over rawListing so owner fields appear once loaded
+  const listing = normalise(fullData ?? rawListing);
+
+  // ── fetch full detail (has owner_phone, owner_name, owner_id …) ──────────
+  useEffect(() => {
+    if (!isOpen || !rawListing?.id) return;
+    setFullData(null);
+    setDetailLoading(true);
+    fetchProperty(rawListing.id)
+      .then(data => { if (data && !data.error) setFullData(data); })
+      .catch(() => {})
+      .finally(() => setDetailLoading(false));
+  }, [isOpen, rawListing?.id]);
 
   useEffect(() => {
     if (isOpen && listing) {
@@ -154,7 +172,10 @@ const PropertyDetails = ({ listing: rawListing, isOpen, onClose }) => {
   const handleMessageSent = (inquiryId) => {
     setMsgOpen(false);
     handleClose();
-    setTimeout(() => navigate(`/messages?thread=${inquiryId}`), 340);
+    const dest = activeUser?.role === 'agent'
+      ? `/agent/leads?conversation=${inquiryId}`
+      : `/user/messages?thread=${inquiryId}`;
+    setTimeout(() => navigate(dest), 340);
   };
 
   const hasValidOwnerId = listing.ownerId
@@ -197,7 +218,7 @@ const PropertyDetails = ({ listing: rawListing, isOpen, onClose }) => {
   const baseDetails = [
     { Icon: Home,       color: 'bg-amber-100  text-amber-700',  label: 'Property Type',
       value: listing.propertyType ? listing.propertyType.charAt(0).toUpperCase() + listing.propertyType.slice(1) : '—' },
-    { Icon: TrendingUp, color: 'bg-purple-100 text-purple-700', label: 'Transaction',   value: listing.listingType },
+    { Icon: TrendingUp, color: 'bg-purple-100 text-purple-700', label: 'Transaction',  value: listing.listingType },
     { Icon: Maximize,   color: 'bg-green-100  text-green-700',
       label: isNoRooms && listing.propertyType?.toLowerCase() === 'land' ? 'Plot Size' : 'Area',
       value: listing.area != null ? `${formatArea(listing.area)} m²` : '—' },
@@ -216,9 +237,7 @@ const PropertyDetails = ({ listing: rawListing, isOpen, onClose }) => {
 
   const detailRows = [...baseDetails, ...extendedDetails];
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Contact Sidebar — shared between desktop sticky + mobile inline
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─── Contact sidebar ──────────────────────────────────────────────────────
   const ContactSidebar = () => (
     <div className="space-y-4">
 
@@ -250,132 +269,139 @@ const PropertyDetails = ({ listing: rawListing, isOpen, onClose }) => {
       </div>
 
       {/* Agent card */}
-      <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100 space-y-4">
-        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Listed by</p>
+      <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100 space-y-3">
 
-        {/* Avatar + name */}
-        <div className="flex items-center gap-3">
-          <div
-            onClick={hasValidOwnerId ? goToAgent : undefined}
-            className={`flex-shrink-0 w-14 h-14 rounded-full overflow-hidden shadow-md ${
-              hasValidOwnerId
-                ? 'ring-2 ring-amber-300 hover:ring-amber-500 cursor-pointer transition-all'
-                : ''
-            }`}>
-            {listing.ownerAvatar
-              ? <img src={listing.ownerAvatar} alt={listing.ownerName} className="w-full h-full object-cover" />
-              : <div className={`w-full h-full flex items-center justify-center ${
-                  listing.ownerRole === 'agent'
-                    ? 'bg-gradient-to-br from-amber-100 to-amber-200'
-                    : 'bg-gradient-to-br from-gray-100 to-gray-200'
+        {detailLoading ? (
+          /* shimmer while fetching */
+          <div className="space-y-3 animate-pulse">
+            <div className="h-3 w-20 bg-gray-200 rounded-full" />
+            <div className="flex items-center gap-3">
+              <div className="w-14 h-14 rounded-full bg-gray-200 flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 bg-gray-200 rounded w-3/4" />
+                <div className="h-3 bg-gray-200 rounded w-1/2" />
+                <div className="h-3 bg-gray-200 rounded w-1/3" />
+              </div>
+            </div>
+            <div className="h-10 bg-gray-200 rounded-xl" />
+            <div className="h-10 bg-gray-200 rounded-xl" />
+            <div className="h-10 bg-amber-100 rounded-xl" />
+          </div>
+        ) : (
+          <>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Listed by</p>
+
+            {/* Avatar + name */}
+            <div className="flex items-center gap-3">
+              <div
+                onClick={hasValidOwnerId ? goToAgent : undefined}
+                className={`flex-shrink-0 w-14 h-14 rounded-full overflow-hidden shadow-md ${
+                  hasValidOwnerId ? 'ring-2 ring-amber-300 hover:ring-amber-500 cursor-pointer transition-all' : ''
                 }`}>
-                  <span className={`text-xl font-extrabold ${listing.ownerRole === 'agent' ? 'text-amber-700' : 'text-gray-500'}`}>
-                    {ownerInitials}
+                {listing.ownerAvatar
+                  ? <img src={listing.ownerAvatar} alt={listing.ownerName} className="w-full h-full object-cover" />
+                  : <div className={`w-full h-full flex items-center justify-center ${
+                      listing.ownerRole === 'agent'
+                        ? 'bg-gradient-to-br from-amber-100 to-amber-200'
+                        : 'bg-gradient-to-br from-gray-100 to-gray-200'
+                    }`}>
+                      <span className={`text-xl font-extrabold ${listing.ownerRole === 'agent' ? 'text-amber-700' : 'text-gray-500'}`}>
+                        {ownerInitials}
+                      </span>
+                    </div>
+                }
+              </div>
+
+              <div className="flex-1 min-w-0">
+                {hasValidOwnerId ? (
+                  <button onClick={goToAgent}
+                    className="font-bold text-gray-900 hover:text-amber-700 transition-colors flex items-center gap-1 group text-left w-full">
+                    <span className="truncate">{listing.ownerName || 'HOMi Agent'}</span>
+                    <ExternalLink className="w-3.5 h-3.5 text-gray-400 group-hover:text-amber-600 flex-shrink-0" />
+                  </button>
+                ) : (
+                  <p className="font-bold text-gray-900 truncate">{listing.ownerName || 'HOMi Agent'}</p>
+                )}
+                <p className="text-sm text-gray-500 truncate">
+                  {listing.ownerAgency || (listing.ownerRole === 'agent' ? 'Licensed Real Estate Agent' : 'Private Owner')}
+                </p>
+                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                  {listing.ownerVerified && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">
+                      <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" /> Verified
+                    </span>
+                  )}
+                  <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-semibold ${
+                    listing.ownerRole === 'agent' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
+                  }`}>
+                    {listing.ownerRole === 'agent' ? 'Agent' : 'Private Owner'}
                   </span>
                 </div>
-            }
-          </div>
+              </div>
+            </div>
 
-          <div className="flex-1 min-w-0">
-            {hasValidOwnerId ? (
-              <button onClick={goToAgent}
-                className="font-bold text-gray-900 hover:text-amber-700 transition-colors flex items-center gap-1 group text-left w-full">
-                <span className="truncate">{listing.ownerName || 'HOMi Agent'}</span>
-                <ExternalLink className="w-3.5 h-3.5 text-gray-400 group-hover:text-amber-600 flex-shrink-0" />
-              </button>
-            ) : (
-              <p className="font-bold text-gray-900 truncate">{listing.ownerName || 'HOMi Agent'}</p>
+            {/* Bio */}
+            {listing.ownerBio && (
+              <p className="text-sm text-gray-500 leading-relaxed border-l-2 border-amber-200 pl-3 line-clamp-3">
+                {listing.ownerBio}
+              </p>
             )}
-            <p className="text-sm text-gray-500 truncate">
-              {listing.ownerAgency || (listing.ownerRole === 'agent' ? 'Licensed Real Estate Agent' : 'Private Owner')}
-            </p>
-            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-              {listing.ownerVerified && (
-                <span className="inline-flex items-center gap-1 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">
-                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" /> Verified
-                </span>
-              )}
-              <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-semibold ${
-                listing.ownerRole === 'agent' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
-              }`}>
-                {listing.ownerRole === 'agent' ? 'Agent' : 'Private Owner'}
-              </span>
-            </div>
-          </div>
-        </div>
 
-        {/* Bio */}
-        {listing.ownerBio && (
-          <p className="text-sm text-gray-500 leading-relaxed border-l-2 border-amber-200 pl-3 line-clamp-3">
-            {listing.ownerBio}
-          </p>
+            {/* View profile — only agents have a profile page */}
+            {hasValidOwnerId && listing.ownerRole === 'agent' && (
+              <button onClick={goToAgent}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 border-2 border-amber-200 hover:border-amber-400 hover:bg-amber-50 text-amber-700 rounded-xl font-semibold text-sm transition-all active:scale-95">
+                <User className="w-4 h-4" />
+                View Agent Profile
+              </button>
+            )}
+
+            {/* Phone */}
+            {listing.ownerPhone ? (
+              <a href={`tel:${listing.ownerPhone}`}
+                className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 hover:border-amber-300 hover:bg-amber-50 transition-colors">
+                <div className="w-9 h-9 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <Phone className="w-4 h-4 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 font-medium">Phone</p>
+                  <p className="text-sm font-bold text-gray-900">{listing.ownerPhone}</p>
+                </div>
+              </a>
+            ) : (
+              <div className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 opacity-40">
+                <div className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <Phone className="w-4 h-4 text-gray-400" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 font-medium">Phone</p>
+                  <p className="text-sm font-bold text-gray-400">Not available</p>
+                </div>
+              </div>
+            )}
+
+            {/* WhatsApp — only show if number exists */}
+            {listing.ownerWa && (
+              <a href={`https://wa.me/${listing.ownerWa.replace(/[^0-9]/g, '')}?text=${whatsappMsg}`}
+                target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 hover:border-green-300 hover:bg-green-50 transition-colors">
+                <div className="w-9 h-9 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <WaIcon className="w-4 h-4 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400 font-medium">WhatsApp</p>
+                  <p className="text-sm font-bold text-gray-900">{listing.ownerWa.replace(/[^0-9+]/g, '')}</p>
+                </div>
+              </a>
+            )}
+
+            {/* Send Message */}
+            <button onClick={() => setMsgOpen(true)}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-semibold text-sm transition-all active:scale-95 shadow-md">
+              <MessageSquare className="w-4 h-4" /> Send Message
+            </button>
+          </>
         )}
-
-        {/* ── View Agent / Owner Profile button — always shown when we have a valid id ── */}
-        {hasValidOwnerId && (
-          <button onClick={goToAgent}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 border-2 border-amber-200 hover:border-amber-400 hover:bg-amber-50 text-amber-700 rounded-xl font-semibold text-sm transition-all active:scale-95">
-            <User className="w-4 h-4" />
-            View {listing.ownerRole === 'agent' ? 'Agent' : 'Owner'} Profile
-          </button>
-        )}
-
-        {/* ── Phone + WhatsApp card rows ── */}
-        <div className="space-y-2">
-          {listing.ownerPhone ? (
-            <a href={`tel:${listing.ownerPhone}`}
-              className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 hover:border-amber-300 hover:bg-amber-50 transition-colors group">
-              <div className="w-9 h-9 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <Phone className="w-4 h-4 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 font-medium">Phone</p>
-                <p className="text-sm font-bold text-gray-900">{listing.ownerPhone}</p>
-              </div>
-            </a>
-          ) : (
-            <div className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 opacity-40">
-              <div className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <Phone className="w-4 h-4 text-gray-400" />
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 font-medium">Phone</p>
-                <p className="text-sm font-bold text-gray-400">Not available</p>
-              </div>
-            </div>
-          )}
-
-          {listing.ownerWa ? (
-            <a href={`https://wa.me/${listing.ownerWa.replace(/[^0-9]/g, '')}?text=${whatsappMsg}`}
-              target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 hover:border-green-300 hover:bg-green-50 transition-colors group">
-              <div className="w-9 h-9 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <WaIcon className="w-4 h-4 text-green-600" />
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 font-medium">WhatsApp</p>
-                <p className="text-sm font-bold text-gray-900">{listing.ownerWa.replace(/[^0-9+]/g, '')}</p>
-              </div>
-            </a>
-          ) : (
-            <div className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 opacity-40">
-              <div className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <WaIcon className="w-4 h-4 text-gray-400" />
-              </div>
-              <div>
-                <p className="text-xs text-gray-400 font-medium">WhatsApp</p>
-                <p className="text-sm font-bold text-gray-400">Not available</p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Send Message */}
-        <button
-          onClick={() => setMsgOpen(true)}
-          className="w-full flex items-center justify-center gap-2 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-semibold text-sm transition-all active:scale-95 shadow-md">
-          <MessageSquare className="w-4 h-4" /> Send Message
-        </button>
       </div>
     </div>
   );
@@ -410,14 +436,20 @@ const PropertyDetails = ({ listing: rawListing, isOpen, onClose }) => {
             </p>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
+            {detailLoading && <Loader2 className="w-4 h-4 text-amber-500 animate-spin mr-1" />}
+            {activeUser && (
+              <button onClick={() => setReportOpen(true)}
+                className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-red-50 transition-colors"
+                aria-label="Report listing" title="Report this listing">
+                <Flag className="w-4 h-4 text-gray-400 hover:text-red-500" />
+              </button>
+            )}
             <button onClick={() => setShareOpen(true)}
-              className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
-              aria-label="Share property">
+              className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors">
               <Share2 className="w-4 h-4 text-gray-600" />
             </button>
             <button onClick={handleFavorite}
-              className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-red-50 transition-colors relative"
-              aria-label={favorited ? 'Remove from favorites' : 'Save to favorites'}>
+              className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-red-50 transition-colors relative">
               <Heart className={`w-4 h-4 transition-all duration-200 ${
                 favorited ? 'fill-red-500 text-red-500' : 'text-gray-600'
               } ${heartAnim ? 'scale-125' : 'scale-100'}`} />
@@ -503,7 +535,7 @@ const PropertyDetails = ({ listing: rawListing, isOpen, onClose }) => {
                   </button>
                 </div>
 
-                {/* Mobile price + stats */}
+                {/* Mobile price */}
                 <div className="lg:hidden bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-5 border border-amber-100">
                   <div className="flex items-baseline gap-2 mb-3">
                     <span className="text-3xl font-extrabold text-amber-700">{formatPrice(listing.price)}</span>
@@ -548,6 +580,7 @@ const PropertyDetails = ({ listing: rawListing, isOpen, onClose }) => {
                       </button>
                     ))}
                   </div>
+
                   <div className="p-5">
                     {activeTab === 'overview' && (
                       <div className="space-y-5">
@@ -574,6 +607,7 @@ const PropertyDetails = ({ listing: rawListing, isOpen, onClose }) => {
                         </div>
                       </div>
                     )}
+
                     {activeTab === 'features' && (
                       <div className="space-y-4">
                         <h3 className="text-base font-bold text-gray-900">Features &amp; Amenities</h3>
@@ -589,13 +623,13 @@ const PropertyDetails = ({ listing: rawListing, isOpen, onClose }) => {
                       </div>
                     )}
 
-                    {/* ── Location tab: Map always mounted, visibility toggled ── */}
+                    {/* Map: always mounted, shown/hidden via display — loads instantly */}
                     <div style={{ display: activeTab === 'location' ? 'block' : 'none' }}>
                       <div className="space-y-4">
                         <h3 className="text-base font-bold text-gray-900">Location</h3>
                         <div className="h-64 rounded-xl overflow-hidden border border-gray-200 shadow-sm">
                           <Map
-                            listings={[rawListing]}
+                            listings={[fullData ?? rawListing]}
                             center={{ lat: listing.lat, lng: listing.lng }}
                             zoom={15} showControls={false} height="100%"
                           />
@@ -617,13 +651,13 @@ const PropertyDetails = ({ listing: rawListing, isOpen, onClose }) => {
                   </div>
                 </div>
 
-                {/* Contact sidebar — mobile */}
+                {/* Contact sidebar — mobile inline */}
                 <div className="lg:hidden">
                   <ContactSidebar />
                 </div>
               </div>
 
-              {/* Right column: sticky sidebar (desktop) */}
+              {/* Right sticky sidebar (desktop) */}
               <div className="hidden lg:block lg:w-80 xl:w-96 flex-shrink-0">
                 <div className="sticky top-6">
                   <ContactSidebar />
@@ -634,38 +668,45 @@ const PropertyDetails = ({ listing: rawListing, isOpen, onClose }) => {
           </div>
         </div>
 
-        {/* ── Mobile bottom CTA bar ─────────────────────────────────────────── */}
+        {/* Mobile bottom CTA */}
         <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t border-gray-100 p-3 flex gap-2 z-[10000]">
-          {listing.ownerPhone && (
-            <a href={`tel:${listing.ownerPhone}`}
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-xl text-xs transition-colors">
-              <Phone className="w-4 h-4" />
-              <span>Call</span>
-              <span className="text-[9px] opacity-80 font-normal">{listing.ownerPhone}</span>
-            </a>
-          )}
-          {listing.ownerWa && (
-            <a href={`https://wa.me/${listing.ownerWa.replace(/[^0-9]/g, '')}?text=${whatsappMsg}`}
-              target="_blank" rel="noopener noreferrer"
-              className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl text-xs transition-colors">
-              <WaIcon className="w-4 h-4" />
-              <span>WhatsApp</span>
-              <span className="text-[9px] opacity-80 font-normal">{listing.ownerWa.replace(/[^0-9+]/g, '')}</span>
-            </a>
-          )}
-          <button
-            onClick={() => setMsgOpen(true)}
-            className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-gray-900 hover:bg-gray-800 text-white font-bold py-3 rounded-xl text-xs transition-colors">
-            <MessageSquare className="w-4 h-4" />
-            <span>Message</span>
-          </button>
-          {hasValidOwnerId && (
-            <button
-              onClick={goToAgent}
-              className="w-14 flex flex-col items-center justify-center gap-0.5 bg-white border-2 border-amber-200 text-amber-700 font-bold py-3 rounded-xl text-xs transition-colors hover:bg-amber-50">
-              <User className="w-4 h-4" />
-              <span className="text-[9px]">Agent</span>
-            </button>
+          {detailLoading ? (
+            <div className="flex-1 flex items-center justify-center bg-amber-50 rounded-xl py-3 gap-2">
+              <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />
+              <span className="text-xs text-amber-600 font-medium">Loading contact…</span>
+            </div>
+          ) : (
+            <>
+              {listing.ownerPhone && (
+                <a href={`tel:${listing.ownerPhone}`}
+                  className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded-xl text-xs transition-colors">
+                  <Phone className="w-4 h-4" />
+                  <span>Call</span>
+                  <span className="text-[9px] opacity-80 font-normal">{listing.ownerPhone}</span>
+                </a>
+              )}
+              {listing.ownerWa && (
+                <a href={`https://wa.me/${listing.ownerWa.replace(/[^0-9]/g, '')}?text=${whatsappMsg}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl text-xs transition-colors">
+                  <WaIcon className="w-4 h-4" />
+                  <span>WhatsApp</span>
+                  <span className="text-[9px] opacity-80 font-normal">{listing.ownerWa.replace(/[^0-9+]/g, '')}</span>
+                </a>
+              )}
+              <button onClick={() => setMsgOpen(true)}
+                className="flex-1 flex flex-col items-center justify-center gap-0.5 bg-gray-900 hover:bg-gray-800 text-white font-bold py-3 rounded-xl text-xs transition-colors">
+                <MessageSquare className="w-4 h-4" />
+                <span>Message</span>
+              </button>
+              {hasValidOwnerId && listing.ownerRole === 'agent' && (
+                <button onClick={goToAgent}
+                  className="w-14 flex flex-col items-center justify-center gap-0.5 bg-white border-2 border-amber-200 text-amber-700 font-bold py-3 rounded-xl text-xs transition-colors hover:bg-amber-50">
+                  <User className="w-4 h-4" />
+                  <span className="text-[9px]">Agent</span>
+                </button>
+              )}
+            </>
           )}
           <button onClick={handleFavorite}
             className={`w-14 flex items-center justify-center rounded-xl border-2 transition-all ${
@@ -676,15 +717,22 @@ const PropertyDetails = ({ listing: rawListing, isOpen, onClose }) => {
         </div>
       </div>
 
-      {/* Share Modal */}
       <ShareModal isOpen={shareOpen} onClose={() => setShareOpen(false)} listing={rawListing} />
 
-      {/* Send Message Modal */}
+      <ReportModal
+        isOpen={reportOpen}
+        onClose={() => setReportOpen(false)}
+        subjectType="listing"
+        subjectId={listing?.id}
+        subjectTitle={listing?.title}
+        linkedListingId={listing?.id}
+      />
+
       <SendMessageModal
         isOpen={msgOpen}
         onClose={() => setMsgOpen(false)}
-        listing={rawListing}
-        isLoggedIn={!!user}
+        listing={fullData ?? rawListing}
+        isLoggedIn={!!activeUser}
         onLoginRequired={() => { setMsgOpen(false); handleClose(); setTimeout(() => navigate('/auth'), 320); }}
         onSent={handleMessageSent}
       />

@@ -235,7 +235,7 @@ export default function AdminDashboard() {
 
         {/* Header */}
         <div className="mb-6 sm:mb-8">
-          <h1 className="text-xl sm:text-2xl font-bold text-zinc-900">Good morning, Admin 👋</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-zinc-900">Good morning, Admin  </h1>
           <p className="text-sm text-zinc-400 mt-1">Here's what needs your attention today.</p>
         </div>
 

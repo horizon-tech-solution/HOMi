@@ -8,7 +8,7 @@ import {
   Search, X, MessageSquare, Phone, Mail, Clock,
   Star, TrendingUp, CheckCircle, XCircle, Archive,
   Flag, ChevronDown, Building2, MoreVertical, Loader2,
-  AlertTriangle, RefreshCw,
+  AlertTriangle, RefreshCw, ArrowUpRight, ArrowDownLeft,
 } from 'lucide-react';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -23,19 +23,20 @@ const timeAgo = (dateStr) => {
   return new Date(dateStr).toLocaleDateString('fr-CM', { day: 'numeric', month: 'short' });
 };
 
-// A lead is "new" (unread) when the agent has never replied
-const isNew = (lead) => parseInt(lead.message_count || 0) === 0;
+// "New" = received by agent (someone messaged THEIR listing) and not yet replied to
+const isNew = (lead) =>
+  lead.direction !== 'sent' && parseInt(lead.message_count || 0) === 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 const AgentLeads = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [leads, setLeads]                     = useState([]);
-  const [loading, setLoading]                 = useState(true);
-  const [error, setError]                     = useState('');
-  const [searchQuery, setSearchQuery]         = useState('');
-  const [selectedStatus, setSelectedStatus]   = useState('all');
+  const [leads, setLeads]                       = useState([]);
+  const [loading, setLoading]                   = useState(true);
+  const [error, setError]                       = useState('');
+  const [searchQuery, setSearchQuery]           = useState('');
+  const [selectedStatus, setSelectedStatus]     = useState('all');
   const [selectedProperty, setSelectedProperty] = useState('all');
 
   const conversationLeadId = searchParams.get('conversation');
@@ -60,21 +61,21 @@ const AgentLeads = () => {
   // ── Derived values ─────────────────────────────────────────────────────────
 
   const newCount    = leads.filter(isNew).length;
-  const activeCount = leads.filter(l => !isNew(l)).length;
-  const unreadCount = newCount; // for AgentNav badge
+  const activeCount = leads.filter(l => !isNew(l) && l.direction !== 'sent').length;
+  const sentCount   = leads.filter(l => l.direction === 'sent').length;
+  const unreadCount = newCount;
 
-  // Unique properties for filter
   const propertyOptions = [
     { value: 'all', label: 'All Properties' },
     ...Array.from(new Map(leads.map(l => [String(l.listing_id), l.listing_title])).entries())
       .map(([value, label]) => ({ value, label })),
   ];
 
-  // Status options — derived from real data
   const statusOptions = [
-    { value: 'all',    label: 'All Leads', count: leads.length },
-    { value: 'new',    label: 'New',       count: newCount },
-    { value: 'active', label: 'Replied',   count: activeCount },
+    { value: 'all',      label: 'All',      count: leads.length  },
+    { value: 'new',      label: 'New',      count: newCount      },
+    { value: 'active',   label: 'Replied',  count: activeCount   },
+    { value: 'sent',     label: 'Sent',     count: sentCount     },
   ];
 
   const filteredLeads = leads.filter(lead => {
@@ -85,7 +86,11 @@ const AgentLeads = () => {
       (lead.user_email    || '').toLowerCase().includes(q) ||
       (lead.listing_title || '').toLowerCase().includes(q);
 
-    const leadStatus  = isNew(lead) ? 'new' : 'active';
+    // Map lead → its status bucket
+    const leadStatus = lead.direction === 'sent'
+      ? 'sent'
+      : isNew(lead) ? 'new' : 'active';
+
     const matchStatus = selectedStatus === 'all' || leadStatus === selectedStatus;
     const matchProp   = selectedProperty === 'all' || String(lead.listing_id) === selectedProperty;
 
@@ -99,7 +104,6 @@ const AgentLeads = () => {
   const handleLeadClick  = (lead) => setSearchParams({ conversation: String(lead.id) });
   const handleCloseConvo = ()     => setSearchParams({});
 
-  // Optimistically mark a lead as replied after sending a message
   const handleReplySent = (leadId) => {
     setLeads(prev => prev.map(l =>
       String(l.id) === String(leadId)
@@ -108,10 +112,14 @@ const AgentLeads = () => {
     ));
   };
 
-  // ── Status badge (same style as your original) ────────────────────────────
-
+  // ── Status badge ──────────────────────────────────────────────────────────
   const getStatusBadge = (lead) => {
-    if (isNew(lead)) return { bg: 'bg-blue-100', text: 'text-blue-700', label: 'New' };
+    if (lead.direction === 'sent') {
+      return { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Sent by you' };
+    }
+    if (isNew(lead)) {
+      return { bg: 'bg-blue-100', text: 'text-blue-700', label: 'New' };
+    }
     return { bg: 'bg-green-100', text: 'text-green-700', label: 'Replied' };
   };
 
@@ -140,12 +148,12 @@ const AgentLeads = () => {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
           {[
-            { label: 'New Leads',            value: newCount,    icon: MessageSquare, color: 'blue'   },
-            { label: 'Active Conversations', value: activeCount, icon: TrendingUp,    color: 'purple' },
-            { label: 'Total Leads',          value: leads.length,icon: CheckCircle,   color: 'green'  },
-            { label: 'Properties',           value: propertyOptions.length - 1, icon: Building2, color: 'amber' },
+            { label: 'New Leads',            value: newCount,    icon: MessageSquare,  color: 'blue'   },
+            { label: 'Active Conversations', value: activeCount, icon: TrendingUp,     color: 'purple' },
+            { label: 'Sent by You',          value: sentCount,   icon: ArrowUpRight,   color: 'amber'  },
+            { label: 'Total',                value: leads.length,icon: CheckCircle,    color: 'green'  },
           ].map(({ label, value, icon: Icon, color }) => (
             <div key={label} className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
               <div className="flex items-center justify-between">
@@ -220,19 +228,20 @@ const AgentLeads = () => {
             <h3 className="text-xl font-semibold text-gray-900 mb-2">No leads found</h3>
             <p className="text-gray-600">
               {leads.length === 0
-                ? 'No inquiries yet — they\'ll appear here when users contact you about your listings.'
+                ? "No inquiries yet — they'll appear here when users contact you about your listings."
                 : 'Try adjusting your filters.'}
             </p>
           </div>
         ) : (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 divide-y divide-gray-200">
             {filteredLeads.map(lead => {
-              const badge      = getStatusBadge(lead);
-              const unread     = isNew(lead);
-              const msgCount   = parseInt(lead.message_count || 0);
-              const timeStr    = timeAgo(lead.last_message_at || lead.created_at);
-              const preview    = lead.last_message_preview || lead.initial_message || '';
-              const avatarUrl  = lead.user_avatar ||
+              const badge     = getStatusBadge(lead);
+              const unread    = isNew(lead);
+              const isSent    = lead.direction === 'sent';
+              const msgCount  = parseInt(lead.message_count || 0);
+              const timeStr   = timeAgo(lead.last_message_at || lead.created_at);
+              const preview   = lead.last_message_preview || lead.initial_message || '';
+              const avatarUrl = lead.user_avatar ||
                 `https://ui-avatars.com/api/?name=${encodeURIComponent(lead.user_name || 'U')}&background=random`;
 
               return (
@@ -240,14 +249,35 @@ const AgentLeads = () => {
                   className={`p-6 hover:bg-gray-50 transition-colors cursor-pointer ${unread ? 'bg-blue-50' : ''}`}
                   onClick={() => handleLeadClick(lead)}>
                   <div className="flex gap-4">
-                    <img src={avatarUrl} alt={lead.user_name}
-                      className="w-12 h-12 rounded-full flex-shrink-0 object-cover" />
+                    <div className="relative flex-shrink-0">
+                      <img src={avatarUrl} alt={lead.user_name}
+                        className="w-12 h-12 rounded-full object-cover" />
+                      {/* Direction indicator */}
+                      <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center border-2 border-white ${
+                        isSent ? 'bg-purple-500' : 'bg-blue-500'
+                      }`}>
+                        {isSent
+                          ? <ArrowUpRight className="w-2.5 h-2.5 text-white" />
+                          : <ArrowDownLeft className="w-2.5 h-2.5 text-white" />
+                        }
+                      </div>
+                    </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-1 flex-wrap">
                             <h3 className="font-semibold text-gray-900">{lead.user_name || 'Unknown'}</h3>
+
+                            {/* Direction label */}
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                              isSent
+                                ? 'bg-purple-50 text-purple-600'
+                                : 'bg-blue-50 text-blue-600'
+                            }`}>
+                              {isSent ? '↑ You contacted them' : '↓ They contacted you'}
+                            </span>
+
                             {unread && <span className="w-2 h-2 bg-blue-600 rounded-full flex-shrink-0" />}
                             {msgCount > 0 && (
                               <span className="text-xs text-gray-400">
@@ -278,7 +308,6 @@ const AgentLeads = () => {
                             {badge.label}
                           </span>
 
-                          {/* Actions dropdown */}
                           <div className="relative group">
                             <button className="p-2 hover:bg-gray-200 rounded"
                               onClick={e => e.stopPropagation()}>
@@ -319,18 +348,26 @@ const AgentLeads = () => {
                             <Building2 className="w-3 h-3" />
                             {lead.listing_city || `Listing #${lead.listing_id}`}
                           </p>
+                          {isSent && (
+                            <p className="text-xs text-purple-600 font-medium mt-0.5">
+                              You sent an inquiry about this property
+                            </p>
+                          )}
                         </div>
                       </div>
 
                       {/* Message preview */}
                       {preview && (
-                        <p className="text-sm text-gray-700 line-clamp-2 mb-3">"{preview}"</p>
+                        <p className="text-sm text-gray-700 line-clamp-2 mb-3">
+                          {isSent ? <span className="text-purple-600 font-medium">You: </span> : '"'}
+                          {preview}{!isSent && '"'}
+                        </p>
                       )}
 
                       {/* Footer */}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4 text-xs text-gray-500">
-                          <span>Received {timeAgo(lead.created_at)}</span>
+                          <span>{isSent ? 'Sent' : 'Received'} {timeAgo(lead.created_at)}</span>
                         </div>
                         <button
                           className="text-amber-600 hover:text-amber-700 font-semibold text-sm flex items-center gap-1"

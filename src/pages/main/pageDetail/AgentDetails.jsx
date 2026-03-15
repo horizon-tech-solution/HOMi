@@ -1,23 +1,30 @@
 // src/pages/public/pageDetail/AgentDetails.jsx
-import { X, Star, MapPin, Phone, Mail, Briefcase, Award, Globe, Clock, Loader2 } from 'lucide-react';
+import { X, Star, MapPin, Phone, Mail, Briefcase, Award, Globe, Clock, Loader2, Flag } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchAgent } from '../../../api/public/agent';
 import SendMessageModal from '../../../components/SendMessageModal';
-import { useUserAuth } from '../../../context/UserAuthContext';
+import ReportModal      from '../../../components/ReportModal';
+import ReviewModal      from '../../../components/ReviewModal';
+import { useUserAuth  } from '../../../context/UserAuthContext';
+import { useAgentAuth } from '../../../context/AgentAuthContext';
+import { get } from '../../../api/users/base';
 
 const AgentDetail = ({ agentId, isOpen, onClose }) => {
-  const [agent,     setAgent]     = useState(null);
-  const [loading,   setLoading]   = useState(false);
-  const [error,     setError]     = useState(null);
-  const [activeTab, setActiveTab] = useState('sale');
-  const [msgOpen,   setMsgOpen]   = useState(false);
-  // Holds a minimal listing-shaped object so SendMessageModal can work with any of the agent's listings.
-  // We'll use the first listing, or null if no listings (modal will still work — just no property tag).
+  const [agent,      setAgent]      = useState(null);
+  const [loading,    setLoading]    = useState(false);
+  const [error,      setError]      = useState(null);
+  const [activeTab,  setActiveTab]  = useState('sale');
+  const [msgOpen,    setMsgOpen]    = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviews,    setReviews]    = useState([]);
   const [msgListing, setMsgListing] = useState(null);
 
-  const navigate   = useNavigate();
-  const { user }   = useUserAuth();
+  const navigate        = useNavigate();
+  const { user  }       = useUserAuth();
+  const { agent: myAgent } = useAgentAuth();
+  const activeUser      = user || myAgent;
 
   useEffect(() => {
     if (!isOpen || !agentId) return;
@@ -26,12 +33,16 @@ const AgentDetail = ({ agentId, isOpen, onClose }) => {
     fetchAgent(agentId)
       .then(data => {
         setAgent(data);
-        // Pick first approved listing as the "context" listing for the message
         const firstListing = (data.listings || []).find(l => l.status === 'approved') || data.listings?.[0] || null;
         setMsgListing(firstListing);
       })
-      .catch(e  => setError(e.message))
+      .catch(e => setError(e.message))
       .finally(() => setLoading(false));
+
+    // Fetch reviews separately
+    get(`/public/agents/${agentId}/reviews`)
+      .then(r => setReviews(r.data || []))
+      .catch(() => {});
   }, [isOpen, agentId]);
 
   useEffect(() => {
@@ -64,23 +75,33 @@ const AgentDetail = ({ agentId, isOpen, onClose }) => {
   const specialization = meta.specialization || [];
   const social         = { website: meta.website, facebook: meta.facebook, linkedin: meta.linkedin, instagram: meta.instagram };
   const workingHours   = meta.workingHours   || {};
-  // WhatsApp: prefer profile_meta.whatsapp, fallback to users.phone
   const waNumber       = meta.whatsapp || agent?.phone || null;
 
   const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
 
-  // After message sent → go straight to inbox with thread open
   const handleMessageSent = (inquiryId) => {
     setMsgOpen(false);
     onClose();
-    setTimeout(() => navigate(`/messages?thread=${inquiryId}`), 350);
+    const dest = activeUser?.role === 'agent'
+      ? `/agent/leads?conversation=${inquiryId}`
+      : `/user/messages?thread=${inquiryId}`;
+    setTimeout(() => navigate(dest), 350);
   };
 
-  // When a specific listing card is clicked to "message about this listing"
   const handleMsgAboutListing = (listing) => {
     setMsgListing(listing);
     setMsgOpen(true);
   };
+
+  const handleReviewSubmitted = () => {
+    // Refresh reviews after submission
+    get(`/public/agents/${agentId}/reviews`)
+      .then(r => setReviews(r.data || []))
+      .catch(() => {});
+  };
+
+  // Don't show report/review if viewing own profile
+  const isOwnProfile = activeUser && String(activeUser.id) === String(agentId);
 
   return (
     <>
@@ -103,9 +124,18 @@ const AgentDetail = ({ agentId, isOpen, onClose }) => {
                 <p className="text-xs text-gray-500">{agent?.agency_name || 'Real Estate Agent'}</p>
               </div>
             </div>
-            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Report button — only for logged-in non-owner */}
+              {activeUser && !isOwnProfile && agent && (
+                <button onClick={() => setReportOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-red-100">
+                  <Flag className="w-3.5 h-3.5" /> Report
+                </button>
+              )}
+              <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -156,15 +186,21 @@ const AgentDetail = ({ agentId, isOpen, onClose }) => {
                         <span key={l} className="bg-gray-100 text-gray-600 text-xs font-medium px-2.5 py-1 rounded-full">{l}</span>
                       ))}
                     </div>
-                    {agent.avg_rating > 0 && (
+                    {/* Rating display */}
+                    {reviews.length > 0 && (
                       <div className="flex items-center gap-2">
                         <div className="flex">
-                          {[1,2,3,4,5].map(i => (
-                            <Star key={i} className={`w-4 h-4 ${i <= Math.round(agent.avg_rating) ? 'fill-amber-400 text-amber-400' : 'text-gray-200 fill-gray-200'}`} />
-                          ))}
+                          {[1,2,3,4,5].map(i => {
+                            const avg = reviews.reduce((s, r) => s + r.rating, 0) / reviews.length;
+                            return (
+                              <Star key={i} className={`w-4 h-4 ${i <= Math.round(avg) ? 'fill-amber-400 text-amber-400' : 'text-gray-200 fill-gray-200'}`} />
+                            );
+                          })}
                         </div>
-                        <span className="font-bold text-gray-900 text-sm">{Number(agent.avg_rating).toFixed(1)}</span>
-                        <span className="text-gray-400 text-sm">({agent.review_count} reviews)</span>
+                        <span className="font-bold text-gray-900 text-sm">
+                          {(reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1)}
+                        </span>
+                        <span className="text-gray-400 text-sm">({reviews.length} review{reviews.length !== 1 ? 's' : ''})</span>
                       </div>
                     )}
                   </div>
@@ -174,9 +210,11 @@ const AgentDetail = ({ agentId, isOpen, onClose }) => {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   {[
                     { label: 'Active Listings', value: agent.listings_count || agent.listings?.length || 0 },
-                    { label: 'Reviews',          value: agent.review_count  || 0 },
+                    { label: 'Reviews',          value: reviews.length },
                     { label: 'Years Experience', value: agent.years_experience != null ? `${agent.years_experience}+` : '—' },
-                    { label: 'Avg. Rating',      value: agent.avg_rating > 0 ? Number(agent.avg_rating).toFixed(1) : '—' },
+                    { label: 'Avg. Rating',      value: reviews.length > 0
+                        ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1)
+                        : '—' },
                   ].map(({ label, value }) => (
                     <div key={label} className="bg-gray-50 rounded-2xl p-4 text-center border border-gray-100">
                       <div className="text-2xl font-extrabold text-gray-900">{value}</div>
@@ -234,9 +272,7 @@ const AgentDetail = ({ agentId, isOpen, onClose }) => {
                                   {p.bathrooms != null && <> · {p.bathrooms} ba</>}
                                 </div>
                               </a>
-                              {/* Quick message about this listing */}
-                              <button
-                                onClick={() => handleMsgAboutListing(p)}
+                              <button onClick={() => handleMsgAboutListing(p)}
                                 className="mt-2 w-full text-xs text-amber-700 font-semibold border border-amber-200 hover:bg-amber-50 py-1.5 rounded-lg transition-colors">
                                 Message about this listing
                               </button>
@@ -247,6 +283,66 @@ const AgentDetail = ({ agentId, isOpen, onClose }) => {
                     )}
                   </div>
                 )}
+
+                {/* Reviews section */}
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-bold text-gray-900">
+                      Reviews {reviews.length > 0 && <span className="text-gray-400 font-normal text-base">({reviews.length})</span>}
+                    </h2>
+                    {/* Leave review button — only for logged-in non-owner users */}
+                    {activeUser && !isOwnProfile && (
+                      <button onClick={() => setReviewOpen(true)}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-xl transition-colors">
+                        <Star className="w-3.5 h-3.5" /> Leave a Review
+                      </button>
+                    )}
+                  </div>
+
+                  {reviews.length === 0 ? (
+                    <div className="bg-gray-50 rounded-2xl p-8 text-center border border-gray-100">
+                      <Star className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                      <p className="text-sm text-gray-500">No reviews yet.</p>
+                      {activeUser && !isOwnProfile && (
+                        <button onClick={() => setReviewOpen(true)}
+                          className="mt-3 text-sm text-amber-600 font-semibold hover:text-amber-700">
+                          Be the first to review
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {reviews.map(r => (
+                        <div key={r.id} className="bg-gray-50 rounded-2xl p-4 border border-gray-100">
+                          <div className="flex items-start gap-3">
+                            <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-amber-100 flex items-center justify-center">
+                              {r.reviewer_avatar
+                                ? <img src={r.reviewer_avatar} alt={r.reviewer_name} className="w-full h-full object-cover" />
+                                : <span className="text-sm font-bold text-amber-700">
+                                    {(r.reviewer_name || 'U').charAt(0).toUpperCase()}
+                                  </span>
+                              }
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <p className="font-semibold text-gray-900 text-sm truncate">{r.reviewer_name || 'Anonymous'}</p>
+                                <span className="text-xs text-gray-400 flex-shrink-0">
+                                  {new Date(r.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 mb-2">
+                                {[1,2,3,4,5].map(i => (
+                                  <Star key={i} className={`w-3.5 h-3.5 ${i <= r.rating ? 'fill-amber-400 text-amber-400' : 'text-gray-200 fill-gray-200'}`} />
+                                ))}
+                              </div>
+                              <p className="text-sm text-gray-600 leading-relaxed">{r.comment}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 {/* Working hours */}
                 {Object.keys(workingHours).length > 0 && (
@@ -272,12 +368,8 @@ const AgentDetail = ({ agentId, isOpen, onClose }) => {
               {/* Sidebar */}
               <div className="lg:w-80 xl:w-96 flex-shrink-0">
                 <div className="lg:sticky lg:top-24 space-y-4">
-
-                  {/* Contact card */}
                   <div className="bg-gray-50 rounded-2xl p-6 space-y-4 border border-gray-100">
                     <h3 className="text-base font-bold text-gray-900">Contact {agent.name.split(' ')[0]}</h3>
-
-                    {/* Direct contact buttons */}
                     <div className="space-y-2">
                       {agent.phone && (
                         <a href={`tel:${agent.phone}`}
@@ -291,7 +383,6 @@ const AgentDetail = ({ agentId, isOpen, onClose }) => {
                           </div>
                         </a>
                       )}
-
                       {waNumber && (
                         <a href={`https://wa.me/${waNumber.replace(/[^0-9]/g,'')}?text=${encodeURIComponent(`Bonjour ${agent.name}, je vous contacte via HOMi.`)}`}
                           target="_blank" rel="noopener noreferrer"
@@ -307,7 +398,6 @@ const AgentDetail = ({ agentId, isOpen, onClose }) => {
                           </div>
                         </a>
                       )}
-
                       {agent.email && (
                         <a href={`mailto:${agent.email}`}
                           className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-colors group">
@@ -322,23 +412,19 @@ const AgentDetail = ({ agentId, isOpen, onClose }) => {
                       )}
                     </div>
 
-                    {/* Send Message button — opens modal → inquiry → inbox */}
-                    <button
-                      onClick={() => setMsgOpen(true)}
+                    <button onClick={() => setMsgOpen(true)}
                       className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm">
-                      <Mail className="w-4 h-4" />
-                      Send Message
+                      <Mail className="w-4 h-4" /> Send Message
                     </button>
 
-                    {/* Social links */}
                     {Object.values(social).some(Boolean) && (
                       <div className="pt-3 border-t border-gray-200">
                         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Online</p>
                         <div className="flex flex-wrap gap-2">
-                          {social.website  && <a href={social.website}  target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1"><Globe className="w-3 h-3" />Website</a>}
-                          {social.linkedin && <a href={social.linkedin} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-700 hover:underline">LinkedIn</a>}
-                          {social.facebook && <a href={social.facebook} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">Facebook</a>}
-                          {social.instagram&& <a href={social.instagram}target="_blank" rel="noopener noreferrer" className="text-xs text-pink-600 hover:underline">Instagram</a>}
+                          {social.website   && <a href={social.website}   target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1"><Globe className="w-3 h-3" />Website</a>}
+                          {social.linkedin  && <a href={social.linkedin}  target="_blank" rel="noopener noreferrer" className="text-xs text-blue-700 hover:underline">LinkedIn</a>}
+                          {social.facebook  && <a href={social.facebook}  target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">Facebook</a>}
+                          {social.instagram && <a href={social.instagram} target="_blank" rel="noopener noreferrer" className="text-xs text-pink-600 hover:underline">Instagram</a>}
                         </div>
                       </div>
                     )}
@@ -386,14 +472,29 @@ const AgentDetail = ({ agentId, isOpen, onClose }) => {
         )}
       </div>
 
-      {/* Send Message modal — inquiry tagged to a listing → goes to inbox */}
       <SendMessageModal
         isOpen={msgOpen}
         onClose={() => setMsgOpen(false)}
         listing={msgListing}
-        isLoggedIn={!!user}
+        isLoggedIn={!!activeUser}
         onLoginRequired={() => { setMsgOpen(false); navigate('/auth'); }}
         onSent={handleMessageSent}
+      />
+
+      <ReportModal
+        isOpen={reportOpen}
+        onClose={() => setReportOpen(false)}
+        subjectType="agent"
+        subjectId={agentId}
+        subjectTitle={agent?.name}
+      />
+
+      <ReviewModal
+        isOpen={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        agentId={agentId}
+        agentName={agent?.name}
+        onReviewSubmitted={handleReviewSubmitted}
       />
     </>
   );

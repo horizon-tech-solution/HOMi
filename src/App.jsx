@@ -18,6 +18,11 @@ import UserNotifications from './pages/user/UserNotification';
 import ListProperty from './pages/user/ListProperty';
 import UserDashboard from './pages/user/UserDashboard';
 import UserMessages from './pages/user/UserMessages.jsx';
+import UserListings from './pages/user/listings/UserListings.jsx';
+import UserEditProperty from './pages/user/listings/UserEditProperty.jsx';
+import ResetPassword from './pages/auth/ResetPassword.jsx';
+import ForgotPassword from './pages/auth/ForgotPassword.jsx';
+
 
 import AgentDashboard from './pages/agent/AgentDashboard';
 import AgentListings from './pages/agent/Listings/AgentListings';
@@ -63,14 +68,14 @@ const noLayoutPages = [
   '/auth', '/agent/auth', '/user/become-agent',
   '/admin/login',
   '/admin', '/admin/agents', '/admin/listings', '/admin/users',
-  '/admin/reports', '/admin/settings', '/admin/activity', '/admin/analytics', '/agent/edit-listing/:id', '/user/sell/list-property',
+  '/admin/reports', '/admin/settings', '/admin/activity', '/admin/analytics', '/agent/edit-listing/:id', '/user/sell/list-property','/user/listings/:id/edit','auth/reset-password','auth/forgot-password'
 ];
 
 const noFooterPages = [
   '/properties', '/user/settings', '/user/favorites', '/user/history',
   '/user/notifications', '/user/sell/add-property', '/user/home',
   '/agent/home', '/agent/listings', '/agent/listings/add',
-  '/agent/leads', '/agent/profile', '/agent/settings', '/agent/notifications','user/messsage',
+  '/agent/leads', '/agent/profile', '/agent/settings', '/agent/notifications','user/messsage','user/listings',
 ];
 
 
@@ -110,6 +115,8 @@ function AppRoutes() {
           <Route path="/auth" element={<Auth />} />
           <Route path="/user/become-agent" element={<BecomeAgent />} />
           <Route path="/agent/auth" element={<ProAccount />} />
+          <Route path="/auth/reset-password" element={<ResetPassword />} />
+          <Route path="/auth/forgot-password" element={<ForgotPassword />} />
 
           {/* ── User (must be logged in) ─────────────────────────────────────── */}
           <Route path="/user/home"                element={<UserRoute><UserDashboard /></UserRoute>} />
@@ -120,6 +127,10 @@ function AppRoutes() {
           <Route path="/user/sell/add-property"   element={<UserRoute><ListProperty /></UserRoute>} />
           <Route path="/user/sell/list-property"  element={<UserRoute><ListProperty /></UserRoute>} />
           <Route path="/user/messages"            element={<UserRoute><UserMessages /></UserRoute>} />
+          <Route path="/user/listings"            element={<UserRoute><UserListings /></UserRoute>} />
+          <Route path="/user/listings/:id/edit" element={<UserRoute><UserEditProperty /></UserRoute>} />
+          
+          
           
           {/* ── Agent (must be logged in AND role === 'agent') ───────────────── */}
           <Route path="/agent/home"             element={<AgentRoute><AgentDashboard /></AgentRoute>} />

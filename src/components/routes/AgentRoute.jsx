@@ -1,12 +1,15 @@
+// src/components/routes/AgentRoute.jsx
 import { useAgentAuth } from '../../context/AgentAuthContext';
-import { Navigate } from 'react-router-dom';
+import { Navigate     } from 'react-router-dom';
 
 const AgentRoute = ({ children }) => {
   const { agent, loading } = useAgentAuth();
 
-  if (loading) return null; // or a spinner
+  if (loading) return null;
 
-  if (!agent) return <Navigate to="/agent/auth" replace />;
+  if (!agent || agent.role !== 'agent') {
+    return <Navigate to="/agent/auth" replace />;
+  }
 
   return children;
 };

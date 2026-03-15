@@ -7,6 +7,7 @@ const UserNav = ({ unreadCount = 0 }) => {
 
   const navItems = [
     { path: '/user/home', label: 'Home', icon: Home },
+    { path: '/user/listings', label: 'My Listings', icon: Building2 },
     { path: '/user/favorites', label: 'Favorites', icon: Heart },
     { path: '/user/history', label: 'Browse history', icon: Clock },
     { path: '/user/messages', label: 'Messages', icon: MessageSquare },

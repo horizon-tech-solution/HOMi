@@ -6,7 +6,7 @@ const AdminAuthContext = createContext(null);
 export function AdminAuthProvider({ children }) {
   const [admin, setAdmin] = useState(() => {
     try {
-      const stored = sessionStorage.getItem('admin_token');
+      const stored = sessionStorage.getItem('homi_admin');
       return stored ? JSON.parse(stored) : null;
     } catch {
       return null;
@@ -17,22 +17,25 @@ export function AdminAuthProvider({ children }) {
     const res = await fetch('/api/admin/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', // ← sends/receives cookies
       body: JSON.stringify({ username, password }),
     });
 
     const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Login failed');
 
-    if (!res.ok) {
-      throw new Error(data.error || 'Login failed');
-    }
-
-    sessionStorage.setItem('admin_token', JSON.stringify(data));
-    setAdmin(data);
+    // Store only admin info — not the token
+    sessionStorage.setItem('homi_admin', JSON.stringify(data.admin));
+    setAdmin(data.admin);
     return data;
   };
 
-  const logout = () => {
-    sessionStorage.removeItem('admin_token');
+  const logout = async () => {
+    await fetch('/api/admin/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+    }).catch(() => {});
+    sessionStorage.removeItem('homi_admin');
     setAdmin(null);
   };
 

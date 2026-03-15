@@ -3,18 +3,17 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Search, MapPin, Star, Users, User, CheckCircle, Shield, Loader2 } from 'lucide-react';
 import Button from '../../components/Button';
+import LocationSearch from '../../components/LocationSearch';
 import AgentDetail from './pageDetail/AgentDetails';
 import { fetchAgents } from '../../api/public/agent';
 
 // ── Agent Card ────────────────────────────────────────────────────────────────
 const AgentCard = ({ agent, onView }) => {
-  const initials = agent.name
-    .split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
-
+  const initials = agent.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
   const meta = agent.profile_meta
     ? (typeof agent.profile_meta === 'string' ? JSON.parse(agent.profile_meta) : agent.profile_meta)
     : {};
-  const languages     = meta.languages     || [];
+  const languages      = meta.languages     || [];
   const specialization = (meta.specialization || []).slice(0, 2);
 
   return (
@@ -34,8 +33,7 @@ const AgentCard = ({ agent, onView }) => {
         }
         {agent.verification_status === 'verified' && (
           <div className="absolute top-3 right-3 bg-white rounded-full px-2 py-1 flex items-center gap-1 shadow text-green-600 text-xs font-semibold">
-            <CheckCircle size={11} fill="#16a34a" color="#16a34a" />
-            Verified
+            <CheckCircle size={11} fill="#16a34a" color="#16a34a" /> Verified
           </div>
         )}
         {agent.avg_rating > 0 && (
@@ -47,7 +45,6 @@ const AgentCard = ({ agent, onView }) => {
         )}
       </div>
 
-      {/* Body */}
       <div className="p-4">
         <div className="mb-3">
           <h3 className="text-base font-bold text-gray-900 leading-tight">{agent.name}</h3>
@@ -84,47 +81,42 @@ const AgentCard = ({ agent, onView }) => {
         </div>
 
         <div className="flex gap-2">
-          <Button className="flex-1 text-sm" onClick={() => onView(agent.id)}>
-            Contact
-          </Button>
-          <Button variant="secondary" className="flex-1 text-sm" onClick={() => onView(agent.id)}>
-            View Profile
-          </Button>
+          <Button className="flex-1 text-sm" onClick={() => onView(agent.id)}>Contact</Button>
+          <Button variant="secondary" className="flex-1 text-sm" onClick={() => onView(agent.id)}>View Profile</Button>
         </div>
       </div>
     </div>
   );
 };
 
-// ── Page ─────────────────────────────────────────────────────────────────────
+// ── Page ──────────────────────────────────────────────────────────────────────
 const FindAgent = () => {
-  const { id: urlId }  = useParams();           // present when route is /agent/:id
-  const navigate       = useNavigate();
+  const { id: urlId } = useParams();
+  const navigate      = useNavigate();
 
-  const [agents,          setAgents]          = useState([]);
-  const [total,           setTotal]           = useState(0);
-  const [loading,         setLoading]         = useState(true);
-  const [error,           setError]           = useState(null);
-  const [activeTab,       setActiveTab]       = useState('location');
-  const [searchLocation,  setSearchLocation]  = useState('');
-  const [searchName,      setSearchName]      = useState('');
-  const [showVerifiedOnly,setShowVerifiedOnly] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState(urlId ? parseInt(urlId) : null);
-  const [isDetailOpen,    setIsDetailOpen]    = useState(!!urlId);
+  const [agents,           setAgents]           = useState([]);
+  const [total,            setTotal]            = useState(0);
+  const [loading,          setLoading]          = useState(true);
+  const [error,            setError]            = useState(null);
+  const [activeTab,        setActiveTab]        = useState('location');
+  const [searchLocation,   setSearchLocation]   = useState('');
+  const [searchName,       setSearchName]       = useState('');
+  const [showVerifiedOnly, setShowVerifiedOnly] = useState(false);
+  const [selectedAgentId,  setSelectedAgentId]  = useState(urlId ? parseInt(urlId) : null);
+  const [isDetailOpen,     setIsDetailOpen]     = useState(!!urlId);
 
   const loadAgents = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const params = { limit: 50 };
-      if (searchLocation) params.city = searchLocation;
+      // Both filters go server-side now
+      if (searchLocation) params.search = searchLocation;
+      if (searchName)     params.name   = searchName;
+
       const res = await fetchAgents(params);
       let rows = res.data || [];
 
-      // Client-side name filter (API doesn't support name search)
-      if (searchName) {
-        rows = rows.filter(a => a.name.toLowerCase().includes(searchName.toLowerCase()));
-      }
       if (showVerifiedOnly) {
         rows = rows.filter(a => a.verification_status === 'verified');
       }
@@ -139,6 +131,11 @@ const FindAgent = () => {
   }, [searchLocation, searchName, showVerifiedOnly]);
 
   useEffect(() => { loadAgents(); }, [loadAgents]);
+
+  const handleLocationSelect = ({ shortLabel, label }) => {
+    const val = shortLabel || label || '';
+    setSearchLocation(val);
+  };
 
   const handleView = (id) => {
     setSelectedAgentId(id);
@@ -183,32 +180,52 @@ const FindAgent = () => {
                 </button>
               ))}
             </div>
-            <div className="flex gap-2 p-3">
-              <div className="relative flex-1">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none">
-                  {activeTab === 'location' ? <MapPin size={15} /> : <User size={15} />}
-                </span>
-                <input
-                  type="text"
-                  placeholder={activeTab === 'location' ? 'City or neighbourhood…' : 'Agent name…'}
-                  value={activeTab === 'location' ? searchLocation : searchName}
-                  onChange={e => activeTab === 'location' ? setSearchLocation(e.target.value) : setSearchName(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && loadAgents()}
-                  className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-900 bg-gray-50 focus:outline-none focus:border-gray-900 transition-colors"
-                />
-              </div>
-              <Button icon={Search} className="px-4 py-2.5 whitespace-nowrap text-sm" onClick={loadAgents}>
-                Search
-              </Button>
+
+            <div className="p-3">
+              {activeTab === 'location' ? (
+                /* Smart location search with DB cities + Nominatim */
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <LocationSearch
+                      value={searchLocation}
+                      onChange={setSearchLocation}
+                      onSelect={handleLocationSelect}
+                      placeholder="City, neighbourhood…"
+                      inputClassName="border border-gray-200 rounded-xl bg-gray-50 focus:border-gray-900"
+                    />
+                  </div>
+                  <Button icon={Search} className="px-4 py-2.5 whitespace-nowrap text-sm" onClick={loadAgents}>
+                    Search
+                  </Button>
+                </div>
+              ) : (
+                /* Name search — plain input, server-side */
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Agent name or agency…"
+                      value={searchName}
+                      onChange={e => setSearchName(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && loadAgents()}
+                      className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-900 bg-gray-50 focus:outline-none focus:border-gray-900 transition-colors"
+                    />
+                  </div>
+                  <Button icon={Search} className="px-4 py-2.5 whitespace-nowrap text-sm" onClick={loadAgents}>
+                    Search
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Trust stats */}
           <div className="flex justify-center gap-8 mt-7 flex-wrap">
             {[
-              { n: `${total}+`,  l: 'Verified agents' },
-              { n: '4.9★',       l: 'Avg. rating'     },
-              { n: 'Free',       l: 'To contact'      },
+              { n: `${total}+`, l: 'Verified agents' },
+              { n: '4.9★',      l: 'Avg. rating'     },
+              { n: 'Free',      l: 'To contact'      },
             ].map(s => (
               <div key={s.l} className="text-center">
                 <div className="text-xl font-extrabold text-gray-900">{s.n}</div>
@@ -259,7 +276,6 @@ const FindAgent = () => {
                   <AgentCard key={agent.id} agent={agent} onView={handleView} />
                 ))}
               </div>
-
               {agents.length === 0 && (
                 <div className="text-center py-16 text-gray-400">
                   <div className="text-4xl mb-3">🔍</div>
@@ -289,7 +305,6 @@ const FindAgent = () => {
         </div>
       </section>
 
-      {/* Agent detail panel */}
       {selectedAgentId && (
         <AgentDetail
           agentId={selectedAgentId}

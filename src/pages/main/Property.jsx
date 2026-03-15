@@ -9,30 +9,23 @@ import Map             from '../../components/Map';
 import Loader          from '../../components/Loader';
 import Button          from '../../components/Button';
 import { fetchProperties } from '../../api/public/properties';
+import { recordView, recordSearch } from '../../api/users/history';
 
-// ── Normalise API row → shape PropertyCard + Map expect ──────────────────────
+// ── Normalise API row ─────────────────────────────────────────────────────────
 const normalise = (l) => ({
   ...l,
-  // Map / card expect these aliases
-  location:    l.address || `${l.city}`,
-  type:        l.transaction_type,                         // 'rent' | 'sale'
+  location:    l.address || l.city || '',
+  type:        l.transaction_type,
   listingType: l.transaction_type === 'sale' ? 'For Sale' : 'For Rent',
   image:       l.cover_photo || l.photos?.[0] || '',
   images:      l.photos || [],
   isFavorited: false,
-  // lat/lng already injected by backend
   lat: l.lat ?? null,
   lng: l.lng ?? null,
 });
 
-// ── Empty filters ─────────────────────────────────────────────────────────────
 const EMPTY_FILTERS = {
-  search:     '',
-  type:       '',
-  minPrice:   '',
-  maxPrice:   '',
-  bedrooms:   '',
-  bathrooms:  '',
+  search: '', type: '', minPrice: '', maxPrice: '', bedrooms: '', bathrooms: '',
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -45,50 +38,120 @@ const Properties = () => {
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState(null);
 
-  const [selectedListing,           setSelectedListing]           = useState(null);   // hovered map pin id
-  const [selectedPropertyForDetails, setSelectedPropertyForDetails] = useState(null); // detail panel
+  const [selectedListing,            setSelectedListing]            = useState(null);
+  const [selectedPropertyForDetails, setSelectedPropertyForDetails] = useState(null);
 
-  const [showFilters,       setShowFilters]       = useState(false);
-  const [sheetExpanded,     setSheetExpanded]     = useState(false);
-  const [currentHeight,     setCurrentHeight]     = useState(35);
-  const [isDragging,        setIsDragging]        = useState(false);
-  const [startY,            setStartY]            = useState(0);
+  const [showFilters,   setShowFilters]   = useState(false);
+  const [sheetExpanded, setSheetExpanded] = useState(false);
+  const [currentHeight, setCurrentHeight] = useState(35);
+  const [isDragging,    setIsDragging]    = useState(false);
+  const [startY,        setStartY]        = useState(0);
 
-  const sheetRef       = useRef(null);
+  // Map center — driven by LocationSearch selection
+  const [mapCenter, setMapCenter] = useState({ lat: 4.0511, lng: 9.7679 });
+  const [mapZoom,   setMapZoom]   = useState(13);
+  // Bounding box from Nominatim for the selected location
+  const [locationBbox, setLocationBbox] = useState(null);
 
-  // ── Build filters from URL on mount ─────────────────────────────────────────
+  const sheetRef = useRef(null);
+
+  // ── Filters state ─────────────────────────────────────────────────────────
   const [filters, setFilters] = useState(() => ({
-    search:    searchParams.get('q')           || searchParams.get('search') || '',
-    type:      searchParams.get('listingType') || searchParams.get('type')   || '',
-    minPrice:  searchParams.get('price_min')   || '',
-    maxPrice:  searchParams.get('price_max')   || '',
-    bedrooms:  searchParams.get('bedrooms')    || '',
-    bathrooms: '',
+    search:    searchParams.get('search') || searchParams.get('q') || '',
+    type:      searchParams.get('listingType') || searchParams.get('type') || '',
+    minPrice:  searchParams.get('price_min')  || '',
+    maxPrice:  searchParams.get('price_max')  || '',
+    bedrooms:  searchParams.get('bedrooms')   || '',
+    bathrooms: searchParams.get('bathrooms')  || '',
   }));
 
-  // ── Fetch listings from backend ──────────────────────────────────────────────
+  // ── Smart fetch with radius expansion ────────────────────────────────────
+  const [searchContext, setSearchContext] = useState(null);
+  // { type: 'exact'|'expanded'|'recommended', originalQuery: string }
+
   const loadListings = useCallback(async (params) => {
     setLoading(true);
     setError(null);
     try {
-      // Map frontend filter keys → API param names
-      const apiParams = {};
-      if (params.get('search')      || params.get('q'))           apiParams.q              = params.get('search') || params.get('q');
-      if (params.get('listingType') || params.get('type'))        apiParams.listingType    = params.get('listingType') || params.get('type');
-      if (params.get('city'))                                      apiParams.city           = params.get('city');
-      if (params.get('property_type'))                             apiParams.property_type  = params.get('property_type');
-      if (params.get('price_min'))                                 apiParams.price_min      = params.get('price_min');
-      if (params.get('price_max'))                                 apiParams.price_max      = params.get('price_max');
-      if (params.get('bedrooms'))                                  apiParams.bedrooms       = params.get('bedrooms');
-      if (params.get('neighborhood'))                              apiParams.q              = params.get('neighborhood');
+      const loc = params.get('search') || params.get('q') || params.get('city') || params.get('neighborhood');
+      const tx           = params.get('listingType') || params.get('type');
+      const property_type = params.get('property_type');
+      const price_min    = params.get('price_min');
+      const price_max    = params.get('price_max');
+      const bedrooms     = params.get('bedrooms');
+      const bathrooms    = params.get('bathrooms');
+      // Bbox params (set when user picks from LocationSearch dropdown)
+      const lat_min = params.get('lat_min');
+      const lat_max = params.get('lat_max');
+      const lng_min = params.get('lng_min');
+      const lng_max = params.get('lng_max');
 
-      const res = await fetchProperties({ ...apiParams, limit: 50 });
+      const baseParams = {};
+      if (tx)            baseParams.listingType   = tx;
+      if (property_type) baseParams.property_type = property_type;
+      if (price_min)     baseParams.price_min     = price_min;
+      if (price_max)     baseParams.price_max     = price_max;
+      if (bedrooms)      baseParams.bedrooms      = bedrooms;
+      if (bathrooms)     baseParams.bathrooms     = bathrooms;
+
+      if (loc) {
+        // ── Step 1: exact text search ────────────────────────────────────
+        const res1 = await fetchProperties({ ...baseParams, search: loc, limit: 50 });
+        const rows1 = (res1.data || []).map(normalise);
+        if (rows1.length > 0) {
+          setListings(rows1);
+          setTotal(res1.total || rows1.length);
+          setSearchContext({ type: 'exact', originalQuery: loc });
+          return;
+        }
+
+        // ── Step 2: bbox search (geo-boundary from Nominatim) ────────────
+        if (lat_min && lat_max && lng_min && lng_max) {
+          const res2 = await fetchProperties({
+            ...baseParams,
+            lat_min, lat_max, lng_min, lng_max,
+            limit: 50,
+          });
+          const rows2 = (res2.data || []).map(normalise);
+          if (rows2.length > 0) {
+            setListings(rows2);
+            setTotal(res2.total || rows2.length);
+            setSearchContext({ type: 'bbox', originalQuery: loc });
+            return;
+          }
+        }
+
+        // ── Step 3: broaden text — strip to first word ───────────────────
+        const broadLoc = loc.split(/[,\s]+/)[0];
+        if (broadLoc && broadLoc !== loc) {
+          const res3 = await fetchProperties({ ...baseParams, search: broadLoc, limit: 50 });
+          const rows3 = (res3.data || []).map(normalise);
+          if (rows3.length > 0) {
+            setListings(rows3);
+            setTotal(res3.total || rows3.length);
+            setSearchContext({ type: 'expanded', originalQuery: loc, expandedTo: broadLoc });
+            return;
+          }
+        }
+
+        // ── Step 4: no results anywhere — show all as recommendations ────
+        const res4 = await fetchProperties({ ...baseParams, limit: 50 });
+        const rows4 = (res4.data || []).map(normalise);
+        setListings(rows4);
+        setTotal(res4.total || rows4.length);
+        setSearchContext({ type: 'recommended', originalQuery: loc });
+        return;
+      }
+
+      // ── No location — normal fetch ────────────────────────────────────
+      const res = await fetchProperties({ ...baseParams, limit: 50 });
       const rows = (res.data || []).map(normalise);
       setListings(rows);
       setTotal(res.total || rows.length);
+      setSearchContext(null);
+
     } catch (e) {
-      console.error('[Properties] API error:', e.message);
-      setError(`Failed to load properties: ${e.message}`);
+      setError(`Failed to load: ${e.message}`);
       setListings([]);
     } finally {
       setLoading(false);
@@ -97,7 +160,7 @@ const Properties = () => {
 
   useEffect(() => { loadListings(searchParams); }, [searchParams]);
 
-  // ── Restore detail panel from URL ?property=id ───────────────────────────
+  // Restore detail panel from URL
   useEffect(() => {
     const pid = searchParams.get('property');
     if (pid && listings.length > 0) {
@@ -108,29 +171,74 @@ const Properties = () => {
   }, [searchParams, listings]);
 
   // ── Filter helpers ────────────────────────────────────────────────────────
-  const handleFilterChange = (key, value) => {
+  const handleFilterChange = (key, value) =>
     setFilters(prev => ({ ...prev, [key]: value }));
-  };
 
-  const handleLocationSelect = ({ label, shortLabel, lat, lng }) => {
+  // Called when user picks a suggestion from LocationSearch dropdown
+  // — immediately fires the search AND zooms the map
+  const handleLocationSelect = async ({ label, shortLabel, lat, lng }) => {
     const val = shortLabel || label || '';
     setFilters(prev => ({ ...prev, search: val }));
-    // If Nominatim gave us coordinates, update map center immediately
-    if (lat && lng) setMapCenter({ lat, lng });
-    const p = new URLSearchParams(searchParams);
-    if (val) p.set('search', val); else p.delete('search');
+
+    // Zoom map
+    if (lat && lng) {
+      setMapCenter({ lat, lng });
+      setMapZoom(14);
+    }
+
+    // Build base params preserving active filters
+    const p = new URLSearchParams();
+    if (val) p.set('search', val);
+    const cur = new URLSearchParams(searchParams);
+    if (cur.get('listingType')) p.set('listingType', cur.get('listingType'));
+    if (cur.get('price_min'))   p.set('price_min',   cur.get('price_min'));
+    if (cur.get('price_max'))   p.set('price_max',   cur.get('price_max'));
+    if (cur.get('bedrooms'))    p.set('bedrooms',    cur.get('bedrooms'));
+    if (cur.get('bathrooms'))   p.set('bathrooms',   cur.get('bathrooms'));
+
+    // Fetch bounding box from Nominatim for geo-boundary search
+    try {
+      const q   = encodeURIComponent(val + ' Cameroon');
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`,
+        { headers: { 'Accept-Language': 'en' } }
+      );
+      const data = await res.json();
+      if (data?.[0]?.boundingbox) {
+        const [latMin, latMax, lngMin, lngMax] = data[0].boundingbox;
+        p.set('lat_min', latMin);
+        p.set('lat_max', latMax);
+        p.set('lng_min', lngMin);
+        p.set('lng_max', lngMax);
+        setLocationBbox({ lat_min: latMin, lat_max: latMax, lng_min: lngMin, lng_max: lngMax });
+      }
+    } catch {}
+
     setSearchParams(p);
   };
 
-    const applyFilters = () => {
+  const applyFilters = () => {
     const p = new URLSearchParams();
-    if (filters.search)    p.set('search',    filters.search);
+    if (filters.search)    p.set('search',      filters.search);
     if (filters.type)      p.set('listingType', filters.type);
-    if (filters.minPrice)  p.set('price_min',  filters.minPrice);
-    if (filters.maxPrice)  p.set('price_max',  filters.maxPrice);
-    if (filters.bedrooms)  p.set('bedrooms',   filters.bedrooms);
+    if (filters.minPrice)  p.set('price_min',   filters.minPrice);
+    if (filters.maxPrice)  p.set('price_max',   filters.maxPrice);
+    if (filters.bedrooms)  p.set('bedrooms',    filters.bedrooms);
+    if (filters.bathrooms) p.set('bathrooms',   filters.bathrooms);
     setSearchParams(p);
     setShowFilters(false);
+
+    // Auto-save to search history — fire-and-forget, never blocks render
+    try {
+      const criteria = {};
+      if (filters.search)    criteria.q           = filters.search;
+      if (filters.type)      criteria.listingType = filters.type;
+      if (filters.minPrice)  criteria.price_min   = filters.minPrice;
+      if (filters.maxPrice)  criteria.price_max   = filters.maxPrice;
+      if (filters.bedrooms)  criteria.bedrooms    = filters.bedrooms;
+      if (filters.bathrooms) criteria.bathrooms   = filters.bathrooms;
+      if (Object.keys(criteria).length) recordSearch(criteria).catch(() => {});
+    } catch {}
   };
 
   const clearFilters = () => {
@@ -152,6 +260,7 @@ const Properties = () => {
 
   const handlePropertyClick = (listing) => {
     setSelectedPropertyForDetails(listing);
+    recordView(listing.id).catch(() => {});
     const p = new URLSearchParams(searchParams);
     p.set('property', listing.id);
     navigate(`?${p.toString()}`, { replace: false });
@@ -169,8 +278,7 @@ const Properties = () => {
   const handleTouchMove  = (e) => {
     if (!isDragging) return;
     const delta = startY - e.touches[0].clientY;
-    const deltaP = (delta / window.innerHeight) * 100;
-    setCurrentHeight(h => Math.max(15, Math.min(85, h + deltaP)));
+    setCurrentHeight(h => Math.max(15, Math.min(85, h + (delta / window.innerHeight) * 100)));
     setStartY(e.touches[0].clientY);
   };
   const handleTouchEnd = () => {
@@ -183,9 +291,6 @@ const Properties = () => {
     if (sheetExpanded) { setCurrentHeight(35); setSheetExpanded(false); }
     else               { setCurrentHeight(75); setSheetExpanded(true);  }
   };
-
-  // ── Map center — updated when user picks a location from LocationSearch ──
-  const [mapCenter, setMapCenter] = useState({ lat: 4.0511, lng: 9.7679 });
 
   const hasActiveFilters = searchParams.toString().length > 0 && !searchParams.has('property');
 
@@ -208,7 +313,6 @@ const Properties = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-            {/* Location search */}
             <div className="md:col-span-2 xl:col-span-2">
               <LocationSearch
                 value={filters.search}
@@ -248,7 +352,6 @@ const Properties = () => {
             </div>
           </div>
 
-          {/* Apply button (desktop) */}
           <div className="flex justify-end mt-3">
             <button onClick={applyFilters}
               className="px-6 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-semibold text-sm transition-colors">
@@ -279,7 +382,6 @@ const Properties = () => {
           </div>
         </div>
 
-        {/* Mobile Filter Sheet */}
         {showFilters && (
           <>
             <div className="fixed inset-0 bg-black/60 z-[9998]" onClick={() => setShowFilters(false)} />
@@ -357,19 +459,18 @@ const Properties = () => {
 
       {/* ── DESKTOP LAYOUT ─────────────────────────────────────────────── */}
       <div className="hidden lg:flex h-[calc(100vh-180px)]">
-        {/* Map — left side */}
         <div className="lg:w-1/2 xl:w-3/5 relative">
           <Map
             listings={listings}
             center={mapCenter}
+            zoom={mapZoom}
             onMarkerClick={handleMarkerClick}
             onViewProperty={handlePropertyClick}
             selectedListingId={selectedListing}
             height="100%"
+            showSearch={false}
           />
         </div>
-
-        {/* List — right side */}
         <div className="lg:w-1/2 xl:w-2/5 overflow-y-auto bg-white">
           <div className="p-4">
             {loading ? (
@@ -379,24 +480,21 @@ const Properties = () => {
                 <p className="text-red-500 font-medium mb-4">{error}</p>
                 <Button onClick={() => loadListings(searchParams)}>Retry</Button>
               </div>
-            ) : listings.length > 0 ? (
-              <div className="space-y-4">
-                {listings.map(listing => (
-                  <div key={listing.id} id={`listing-${listing.id}`}
-                    className={`transition-all ${selectedListing === listing.id ? 'ring-2 ring-amber-500 rounded-xl' : ''}`}
-                    onMouseEnter={() => setSelectedListing(listing.id)}
-                    onMouseLeave={() => setSelectedListing(null)}>
-                    <PropertyCard listing={listing} onClick={() => handlePropertyClick(listing)} />
-                  </div>
-                ))}
-              </div>
             ) : (
-              <div className="text-center py-16">
-                <MapIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">No properties found</h3>
-                <p className="text-gray-600 mb-6">Try adjusting your filters</p>
-                <Button onClick={clearFilters}>Clear all filters</Button>
-              </div>
+              <>
+                {/* Smart context banner */}
+                <SearchContextBanner context={searchContext} onClear={clearFilters} />
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  {listings.map(listing => (
+                    <div key={listing.id} id={`listing-${listing.id}`}
+                      className={`transition-all ${selectedListing === listing.id ? 'ring-2 ring-amber-500 rounded-xl' : ''}`}
+                      onMouseEnter={() => setSelectedListing(listing.id)}
+                      onMouseLeave={() => setSelectedListing(null)}>
+                      <PropertyCard listing={listing} onClick={() => handlePropertyClick(listing)} />
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -407,13 +505,13 @@ const Properties = () => {
         <Map
           listings={listings}
           center={mapCenter}
+          zoom={mapZoom}
           onMarkerClick={handleMarkerClick}
           onViewProperty={handlePropertyClick}
           selectedListingId={selectedListing}
           height="100%"
+          showSearch={false}
         />
-
-        {/* Draggable bottom sheet */}
         <div ref={sheetRef}
           className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl transition-all duration-300 ease-out z-10"
           style={{ height: `${currentHeight}vh`, touchAction: 'none' }}>
@@ -440,7 +538,6 @@ const Properties = () => {
               </div>
             </div>
           </div>
-
           <div className="overflow-y-auto h-[calc(100%-60px)] px-4 pb-4">
             {loading ? (
               <Loader text="Finding properties…" />
@@ -449,28 +546,23 @@ const Properties = () => {
                 <p className="text-red-500 text-sm mb-3">{error}</p>
                 <Button onClick={() => loadListings(searchParams)}>Retry</Button>
               </div>
-            ) : listings.length > 0 ? (
-              <div className={`grid gap-4 ${sheetExpanded ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
-                {listings.map(listing => (
-                  <div key={listing.id} id={`listing-${listing.id}`}
-                    className={`transition-all ${selectedListing === listing.id ? 'ring-2 ring-amber-500 rounded-xl' : ''}`}>
-                    <PropertyCard listing={listing} onClick={() => handlePropertyClick(listing)} />
-                  </div>
-                ))}
-              </div>
             ) : (
-              <div className="text-center py-12">
-                <MapIcon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">No properties found</h3>
-                <p className="text-gray-600 mb-4 text-sm">Try adjusting your filters</p>
-                <Button onClick={clearFilters}>Clear all filters</Button>
-              </div>
+              <>
+                <SearchContextBanner context={searchContext} onClear={clearFilters} compact />
+                <div className={`grid gap-4 ${sheetExpanded ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+                  {listings.map(listing => (
+                    <div key={listing.id} id={`listing-${listing.id}`}
+                      className={`transition-all ${selectedListing === listing.id ? 'ring-2 ring-amber-500 rounded-xl' : ''}`}>
+                      <PropertyCard listing={listing} onClick={() => handlePropertyClick(listing)} />
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </div>
       </div>
 
-      {/* ── Property Detail Panel ─────────────────────────────────────── */}
       <PropertyDetails
         listing={selectedPropertyForDetails}
         isOpen={!!selectedPropertyForDetails}
@@ -478,14 +570,73 @@ const Properties = () => {
       />
 
       <style>{`
-        @keyframes slide-up {
-          from { transform: translateY(100%); }
-          to   { transform: translateY(0);    }
-        }
+        @keyframes slide-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
         .animate-slide-up { animation: slide-up 0.3s ease-out; }
       `}</style>
     </div>
   );
+};
+
+// ── Smart search context banner ───────────────────────────────────────────────
+const SearchContextBanner = ({ context, onClear, compact = false }) => {
+  if (!context) return null;
+
+  if (context.type === 'bbox') {
+    return (
+      <div className={`flex items-start gap-2.5 bg-green-50 border border-green-100 rounded-xl mb-4 ${compact ? 'p-3' : 'p-4'}`}>
+        <span className="text-lg flex-shrink-0">📍</span>
+        <div className="flex-1 min-w-0">
+          <p className={`font-semibold text-green-900 ${compact ? 'text-xs' : 'text-sm'}`}>
+            Properties within <span className="font-bold">"{context.originalQuery}"</span>
+          </p>
+          <p className={`text-green-700 mt-0.5 text-xs`}>
+            Found using geo-boundary search
+          </p>
+        </div>
+        <button onClick={onClear} className="text-green-400 hover:text-green-600 text-xs flex-shrink-0 mt-0.5">Clear</button>
+      </div>
+    );
+  }
+
+  if (context.type === 'expanded') {
+    return (
+      <div className={`flex items-start gap-2.5 bg-amber-50 border border-amber-100 rounded-xl mb-4 ${compact ? 'p-3' : 'p-4'}`}>
+        <span className="text-lg flex-shrink-0">🔍</span>
+        <div className="flex-1 min-w-0">
+          <p className={`font-semibold text-amber-900 ${compact ? 'text-xs' : 'text-sm'}`}>
+            No results in <span className="font-bold">"{context.originalQuery}"</span>
+          </p>
+          <p className={`text-amber-700 mt-0.5 ${compact ? 'text-xs' : 'text-xs'}`}>
+            Showing properties in <span className="font-semibold">{context.expandedTo}</span> instead
+          </p>
+        </div>
+        <button onClick={onClear} className="text-amber-400 hover:text-amber-600 text-xs flex-shrink-0 mt-0.5">
+          Clear
+        </button>
+      </div>
+    );
+  }
+
+  if (context.type === 'recommended') {
+    return (
+      <div className={`flex items-start gap-2.5 bg-blue-50 border border-blue-100 rounded-xl mb-4 ${compact ? 'p-3' : 'p-4'}`}>
+        <span className="text-lg flex-shrink-0">💡</span>
+        <div className="flex-1 min-w-0">
+          <p className={`font-semibold text-blue-900 ${compact ? 'text-xs' : 'text-sm'}`}>
+            No properties found near <span className="font-bold">"{context.originalQuery}"</span>
+          </p>
+          <p className={`text-blue-700 mt-0.5 ${compact ? 'text-xs' : 'text-xs'}`}>
+            Here are our latest listings — something might catch your eye
+          </p>
+        </div>
+        <button onClick={onClear} className="text-blue-400 hover:text-blue-600 text-xs flex-shrink-0 mt-0.5">
+          Clear
+        </button>
+      </div>
+    );
+  }
+
+  return null;
 };
 
 export default Properties;

@@ -1,14 +1,15 @@
-// src/components/UserRoute.jsx
-import { Navigate, useLocation } from 'react-router-dom';
-import { useUserAuth } from '../../context/UserAuthContext';
+// src/components/routes/UserRoute.jsx
+import { useUserAuth  } from '../../context/UserAuthContext';
+import { useAgentAuth } from '../../context/AgentAuthContext';
+import { Navigate     } from 'react-router-dom';
 
-export default function UserRoute({ children }) {
-  const { user } = useUserAuth();
-  const location = useLocation();
+const UserRoute = ({ children }) => {
+  const { user  } = useUserAuth();
+  const { agent } = useAgentAuth();
 
-  if (!user) {
-    return <Navigate to="/auth" state={{ from: location }} replace />;
-  }
+  if (!user && !agent) return <Navigate to="/auth" replace />;
 
   return children;
-}
+};
+
+export default UserRoute;

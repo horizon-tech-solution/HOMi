@@ -1,35 +1,15 @@
-// src/api/users.js
-const BASE_URL = import.meta.env.VITE_API_URL || '/api';
-
-const getToken = () => {
-  try { return JSON.parse(sessionStorage.getItem('admin_token'))?.token; }
-  catch { return null; }
-};
-
-const headers = () => ({
-  'Content-Type': 'application/json',
-  'Authorization': `Bearer ${getToken()}`,
-});
-
-const request = async (path, options = {}) => {
-  const res = await fetch(`${BASE_URL}${path}`, { headers: headers(), ...options });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
-};
-
+// src/api/users.js  (admin)
+import { get, post, del } from './base';
 
 export const fetchUsers = ({ search = '', role = '' } = {}) => {
   const params = new URLSearchParams();
   if (search) params.set('search', search);
-  
-  // Map tab labels to actual DB values
   const roleMap = { Users: 'user', Agents: 'agent', Blocked: 'blocked' };
   const mappedRole = roleMap[role];
   if (mappedRole) params.set('role', mappedRole);
-  
-  return request(`/admin/users?${params.toString()}`);
+  return get(`/admin/users?${params.toString()}`);
 };
-export const blockUser      = (userId, reason) => request(`/admin/users/${userId}/block`, { method: 'POST', body: JSON.stringify({ reason }) });
-export const unblockUser    = (userId) => request(`/admin/users/${userId}/unblock`, { method: 'POST' });
-export const deleteUser     = (userId) => request(`/admin/users/${userId}`, { method: 'DELETE' });
-export const sendUserMessage = (userId, message) => request(`/admin/users/${userId}/message`, { method: 'POST', body: JSON.stringify({ message }) });
+export const blockUser       = (id, reason)  => post(`/admin/users/${id}/block`,   { reason });
+export const unblockUser     = (id)          => post(`/admin/users/${id}/unblock`);
+export const deleteUser      = (id)          => del(`/admin/users/${id}`);
+export const sendUserMessage = (id, message) => post(`/admin/users/${id}/message`, { message });

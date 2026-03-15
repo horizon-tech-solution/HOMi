@@ -81,11 +81,14 @@ export default function ListProperty() {
   const mapRef         = useRef(null);
   const mapInstanceRef = useRef(null);
   const markerRef      = useRef(null);
-  const [mapReady, setMapReady]         = useState(false);
-  const [mapSearch, setMapSearch]       = useState('');
+  const [mapReady, setMapReady]           = useState(false);
+
+  // ── Search state — use a ref for the "programmatic clear" flag ────────────
+  const [mapSearch, setMapSearch]               = useState('');
   const [mapSearchResults, setMapSearchResults] = useState([]);
-  const [mapSearching, setMapSearching] = useState(false);
-  const mapSearchTimer                  = useRef(null);
+  const [mapSearching, setMapSearching]         = useState(false);
+  const mapSearchTimer   = useRef(null);
+  const skipNextSearch   = useRef(false); // prevents re-searching after selecting a result
 
   const noRooms = NO_ROOMS_TYPES.includes(form.propertyType);
 
@@ -102,7 +105,43 @@ export default function ListProperty() {
     return () => { document.body.style.overflow = ''; };
   }, [isMapExpanded]);
 
-  // ── Map ────────────────────────────────────────────────────────────────────
+  // ── Map search effect ─────────────────────────────────────────────────────
+  useEffect(() => {
+    // Skip if blank
+    if (!mapSearch.trim()) {
+      setMapSearchResults([]);
+      return;
+    }
+
+    // Skip one cycle after a result was selected (avoids re-querying the chosen value)
+    if (skipNextSearch.current) {
+      skipNextSearch.current = false;
+      return;
+    }
+
+    clearTimeout(mapSearchTimer.current);
+    mapSearchTimer.current = setTimeout(async () => {
+      setMapSearching(true);
+      try {
+        const r = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(mapSearch)}&format=json&limit=5&countrycodes=cm`,
+          { headers: { 'Accept-Language': 'fr' } }
+        );
+        const data = await r.json();
+        setMapSearchResults(data.map(d => ({
+          name: d.display_name.split(',').slice(0, 2).join(', '),
+          full: d.display_name,
+          lat:  parseFloat(d.lat),
+          lng:  parseFloat(d.lon),
+        })));
+      } catch {
+        setMapSearchResults([]);
+      }
+      setMapSearching(false);
+    }, 380);
+  }, [mapSearch]);
+
+  // ── Map init ──────────────────────────────────────────────────────────────
   const initMap = () => {
     const injectCSS = (href, id) => {
       if (document.getElementById(id)) return;
@@ -129,7 +168,6 @@ export default function ListProperty() {
       zoomSnap: 0.5, wheelPxPerZoomLevel: 60,
     }).setView([4.0511, 9.7679], 13);
 
-    // Voyager tile — identical to Map.jsx
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
       subdomains: 'abcd', maxZoom: 20, crossOrigin: true,
@@ -143,11 +181,11 @@ export default function ListProperty() {
     setTimeout(() => map.invalidateSize(), 120);
   };
 
+  // ── Place pin + reverse geocode ───────────────────────────────────────────
   const placePin = (lat, lng) => {
     if (!mapInstanceRef.current) return;
     if (markerRef.current) markerRef.current.remove();
     const L = window.L;
-    // Same marker style as Map.jsx buildMarkerHtml
     const icon = L.divIcon({
       html: `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;">
         <div style="position:relative;background:linear-gradient(135deg,#D97706,#B45309);color:white;
@@ -177,39 +215,26 @@ export default function ListProperty() {
     mapInstanceRef.current.flyTo([lat, lng], Math.max(mapInstanceRef.current.getZoom(), 15), { animate: true, duration: 0.6 });
     setForm(p => ({ ...p, latitude: lat.toFixed(6), longitude: lng.toFixed(6) }));
     setErrors(p => ({ ...p, coordinates: '' }));
-    reverseGeocode(lat, lng);
+
+    // Always overwrite address fields when pin changes
+    reverseGeocode(lat, lng, true);
   };
 
-  // Map search (Nominatim — same pattern as Map.jsx fallback)
-  useEffect(() => {
-    if (!mapSearch.trim()) { setMapSearchResults([]); return; }
-    clearTimeout(mapSearchTimer.current);
-    mapSearchTimer.current = setTimeout(async () => {
-      setMapSearching(true);
-      try {
-        const r = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(mapSearch)}&format=json&limit=5`,
-          { headers: { 'Accept-Language': 'en' } }
-        );
-        const data = await r.json();
-        setMapSearchResults(data.map(d => ({
-          name: d.display_name.split(',').slice(0, 2).join(', '),
-          full: d.display_name,
-          lat: parseFloat(d.lat), lng: parseFloat(d.lon),
-        })));
-      } catch { setMapSearchResults([]); }
-      setMapSearching(false);
-    }, 380);
-  }, [mapSearch]);
-
+  // ── Select a search result: fly + pin, clear search ───────────────────────
   const flyToSearchResult = (result) => {
     if (!mapInstanceRef.current) return;
-    mapInstanceRef.current.flyTo([result.lat, result.lng], 16, { animate: true, duration: 1.0 });
-    setMapSearch(result.name);
+    // Set flag so the useEffect won't fire a new search when we clear mapSearch
+    skipNextSearch.current = true;
+    setMapSearch('');
     setMapSearchResults([]);
+    // Place pin (which also reverse-geocodes and fills address fields)
+    placePin(result.lat, result.lng);
   };
 
-  const reverseGeocode = async (lat, lng) => {
+  // ── Reverse geocode ───────────────────────────────────────────────────────
+  // forceOverwrite=true → always replace address/city/region (used when pin moves)
+  // forceOverwrite=false (default) → only fill empty fields (legacy behaviour)
+  const reverseGeocode = async (lat, lng, forceOverwrite = false) => {
     setIsLoadingLoc(true);
     setLocationName('Loading…');
     try {
@@ -224,20 +249,24 @@ export default function ListProperty() {
           city, town, village, municipality,
           state, region,
         } = d.address;
+
         const locParts = [
           suburb || neighbourhood || quarter,
           city || town || village || municipality,
           state || region,
         ].filter(Boolean);
         setLocationName(locParts.join(', ') || `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-        const streetName = road || street || pedestrian || footway
-                        || suburb || neighbourhood || quarter || '';
+
+        const streetName    = road || street || pedestrian || footway || suburb || neighbourhood || quarter || '';
         const streetAddress = [house_number, streetName].filter(Boolean).join(' ');
+        const resolvedCity  = city || town || village || municipality || '';
+        const resolvedRegion = state || region || '';
+
         setForm(p => ({
           ...p,
-          address: p.address.trim() ? p.address : streetAddress,
-          city:    p.city.trim()    ? p.city    : (city    || town    || village    || municipality || ''),
-          region:  p.region.trim()  ? p.region  : (state   || region  || ''),
+          address: forceOverwrite ? streetAddress : (p.address.trim() ? p.address : streetAddress),
+          city:    forceOverwrite ? resolvedCity  : (p.city.trim()    ? p.city    : resolvedCity),
+          region:  forceOverwrite ? resolvedRegion: (p.region.trim()  ? p.region  : resolvedRegion),
         }));
       } else {
         setLocationName(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
@@ -347,23 +376,22 @@ export default function ListProperty() {
     setIsSubmitting(true);
     setApiError('');
     try {
-      // ── Payload keys match ListingController@store exactly ────────────────
       const payload = {
         title:         form.title,
         description:   form.description,
-        propertyType:  form.propertyType,          // controller reads $input['propertyType']
-        listingType:   form.listingType,            // controller reads $input['listingType']
+        propertyType:  form.propertyType,
+        listingType:   form.listingType,
         price:         Math.min(Number(form.price) || 0, 2147483647),
         bedrooms:      !noRooms && form.bedrooms  !== '' ? Number(form.bedrooms)  : null,
         bathrooms:     !noRooms && form.bathrooms !== '' ? Number(form.bathrooms) : null,
-        landSize:      form.area !== '' ? Math.min(Number(form.area) || 0, 999999) : null, // controller reads $input['landSize'] → area column
+        landSize:      form.area !== '' ? Math.min(Number(form.area) || 0, 999999) : null,
         yearBuilt:     !noRooms && form.yearBuilt !== '' ? Number(form.yearBuilt) : null,
         address:       form.address,
         city:          form.city,
         region:        form.region,
         coordinates:   form.latitude && form.longitude ? `${form.latitude},${form.longitude}` : null,
         furnished:     !noRooms ? (form.furnished || null) : null,
-        parkingSpaces: form.amenities.includes('parking')   ? 1 : 0, // controller reads $input['parkingSpaces']
+        parkingSpaces: form.amenities.includes('parking')   ? 1 : 0,
         generator:     form.amenities.includes('generator') ? 1 : 0,
       };
 
@@ -374,7 +402,6 @@ export default function ListProperty() {
         const BATCH_LIMIT = 6 * 1024 * 1024;
         let batch = new FormData();
         let batchSize = 0;
-        // Controller reads $_FILES['photos'] — use key 'photos' not 'photos[]'
         const flush = async (b) => {
           if ([...b.entries()].length > 0) await uploadListingPhotos(listingId, b);
         };
@@ -383,7 +410,7 @@ export default function ListProperty() {
           if (batchSize + photo.file.size > BATCH_LIMIT) {
             await flush(batch); batch = new FormData(); batchSize = 0;
           }
-          batch.append('photos', photo.file, photo.file.name); // 'photos' not 'photos[]'
+          batch.append('photos', photo.file, photo.file.name);
           batchSize += photo.file.size;
         }
         await flush(batch);
@@ -405,29 +432,28 @@ export default function ListProperty() {
 
   // ── Preview listing object ─────────────────────────────────────────────────
   const previewListing = {
-    id:           'preview',
-    title:        form.title        || 'Property Title',
-    price:        parseInt(form.price) || 0,
-    location:     [form.address, form.city, form.region].filter(Boolean).join(', ') || 'Location',
-    address:      form.address,
-    city:         form.city,
-    region:       form.region,
-    bedrooms:     !noRooms ? (parseInt(form.bedrooms)  || null) : null,
-    bathrooms:    !noRooms ? (parseInt(form.bathrooms) || null) : null,
-    area:         parseInt(form.area) || 0,
-    type:         form.listingType,
-    listingType:  form.listingType === 'sale' ? 'For Sale' : 'For Rent',
+    id:               'preview',
+    title:            form.title        || 'Property Title',
+    price:            parseInt(form.price) || 0,
+    location:         [form.address, form.city, form.region].filter(Boolean).join(', ') || 'Location',
+    address:          form.address,
+    city:             form.city,
+    region:           form.region,
+    bedrooms:         !noRooms ? (parseInt(form.bedrooms)  || null) : null,
+    bathrooms:        !noRooms ? (parseInt(form.bathrooms) || null) : null,
+    area:             parseInt(form.area) || 0,
+    type:             form.listingType,
+    listingType:      form.listingType === 'sale' ? 'For Sale' : 'For Rent',
     transaction_type: form.listingType,
-    property_type: form.propertyType,
-    image:        form.photos[0]?.preview || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=600',
-    images:       form.photos.map(p => p.preview),
-    lat:          parseFloat(form.latitude)  || 4.0511,
-    lng:          parseFloat(form.longitude) || 9.7679,
-    description:  form.description,
-    yearBuilt:    !noRooms ? (form.yearBuilt || null) : null,
-    parking:      form.amenities.includes('parking')   ? 1 : 0,
-    generator:    form.amenities.includes('generator') ? 1 : 0,
-    // no owner_id → PropertDetails hides "View Agent Profile"
+    property_type:    form.propertyType,
+    image:            form.photos[0]?.preview || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=600',
+    images:           form.photos.map(p => p.preview),
+    lat:              parseFloat(form.latitude)  || 4.0511,
+    lng:              parseFloat(form.longitude) || 9.7679,
+    description:      form.description,
+    yearBuilt:        !noRooms ? (form.yearBuilt || null) : null,
+    parking:          form.amenities.includes('parking')   ? 1 : 0,
+    generator:        form.amenities.includes('generator') ? 1 : 0,
   };
 
   // ── Field class helper ─────────────────────────────────────────────────────
@@ -485,7 +511,6 @@ export default function ListProperty() {
             <p className="text-gray-500 mt-1 text-sm">Tell us about your property</p>
           </div>
 
-          {/* Info banner — user-specific */}
           <div className="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-xl p-4">
             <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-blue-700">
@@ -493,7 +518,6 @@ export default function ListProperty() {
             </p>
           </div>
 
-          {/* Title */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Property Title *</label>
             <input type="text" value={form.title} onChange={e => set('title', e.target.value)}
@@ -501,7 +525,6 @@ export default function ListProperty() {
             {errors.title && <p className="text-red-500 text-xs mt-1">{errors.title}</p>}
           </div>
 
-          {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Description *</label>
             <textarea value={form.description} onChange={e => set('description', e.target.value)}
@@ -510,7 +533,6 @@ export default function ListProperty() {
             {errors.description && <p className="text-red-500 text-xs mt-1">{errors.description}</p>}
           </div>
 
-          {/* Property type + Listing type */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Property Type *</label>
@@ -540,7 +562,6 @@ export default function ListProperty() {
             </div>
           </div>
 
-          {/* Price */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Price (FCFA){form.listingType === 'rent' ? ' / month' : ''} *
@@ -557,7 +578,6 @@ export default function ListProperty() {
             {errors.price && <p className="text-red-500 text-xs mt-1">{errors.price}</p>}
           </div>
 
-          {/* Residential fields */}
           {!noRooms && (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -613,7 +633,6 @@ export default function ListProperty() {
             </>
           )}
 
-          {/* Land / commercial area field */}
           {noRooms && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -643,18 +662,15 @@ export default function ListProperty() {
         <div className="space-y-6">
           <div>
             <h2 className="text-2xl font-bold text-gray-900">Property Location</h2>
-            <p className="text-gray-500 mt-1 text-sm">Click or tap the map to pin your property's exact location</p>
+            <p className="text-gray-500 mt-1 text-sm">Search or click the map to pin your property's exact location</p>
           </div>
 
-          {/* ── Map container — identical structure to Map.jsx ── */}
           <div className={`relative rounded-2xl overflow-hidden border-2 transition-colors ${
             errors.coordinates ? 'border-red-300' : form.latitude ? 'border-amber-300' : 'border-gray-200'
           }`} style={{ height: isMapExpanded ? '70vh' : '380px' }}>
 
-            {/* Leaflet mount */}
             <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
 
-            {/* Loading overlay */}
             {!mapReady && (
               <div className="absolute inset-0 bg-gray-50 flex flex-col items-center justify-center z-[2000]">
                 <div className="relative w-14 h-14 mb-3">
@@ -668,7 +684,7 @@ export default function ListProperty() {
             )}
 
             {mapReady && (<>
-              {/* ── Search bar — top-left, same as Map.jsx ── */}
+              {/* Search bar */}
               <div className="absolute top-3 left-3 z-[1000]" style={{ maxWidth: 290, width: 'calc(100% - 64px)' }}>
                 <div className="relative">
                   <div className="flex items-center bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
@@ -687,7 +703,6 @@ export default function ListProperty() {
                       </button>
                     )}
                   </div>
-                  {/* Dropdown */}
                   {mapSearchResults.length > 0 && (
                     <div className="absolute top-full mt-1.5 left-0 right-0 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[1001]">
                       <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-100">
@@ -710,7 +725,7 @@ export default function ListProperty() {
                 </div>
               </div>
 
-              {/* ── Right controls — top-right, same as Map.jsx ── */}
+              {/* Right controls */}
               <div className="absolute top-3 right-3 flex flex-col gap-2 z-[1000]">
                 <button onClick={() => mapInstanceRef.current?.zoomIn()}
                   className="w-10 h-10 bg-white rounded-xl shadow-lg hover:shadow-xl hover:bg-gray-50 flex items-center justify-center transition-all border border-gray-200"
@@ -736,7 +751,7 @@ export default function ListProperty() {
                 </button>
               </div>
 
-              {/* ── Pin confirmation badge — bottom-left above scale ── */}
+              {/* Pin badge */}
               {form.latitude && form.longitude && (
                 <div className="absolute bottom-8 left-3 z-[1000]">
                   <div className="flex items-center gap-2 bg-white rounded-xl shadow-lg border border-green-200 px-3 py-2">
@@ -748,7 +763,7 @@ export default function ListProperty() {
                 </div>
               )}
 
-              {/* ── Tap hint when no pin yet ── */}
+              {/* Tap hint */}
               {!form.latitude && (
                 <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none">
                   <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg border border-gray-100 px-4 py-2.5">
@@ -758,7 +773,6 @@ export default function ListProperty() {
               )}
             </>)}
 
-            {/* Map.jsx popup + cluster CSS */}
             <style>{`
               .homi-marker { background: none !important; border: none !important; }
               .leaflet-control-scale-line {
@@ -777,14 +791,12 @@ export default function ListProperty() {
             `}</style>
           </div>
 
-          {/* Coordinates error */}
           {errors.coordinates && (
             <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-700 text-sm">
               <AlertCircle className="w-4 h-4 flex-shrink-0" /> {errors.coordinates}
             </div>
           )}
 
-          {/* ── Address fields — auto-filled by reverseGeocode, editable ── */}
           <div className="grid grid-cols-1 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Street Address *</label>
@@ -868,7 +880,6 @@ export default function ListProperty() {
             </div>
           )}
 
-          {/* Upload zone */}
           <label className="relative block">
             <input type="file" multiple accept="image/*" onChange={addPhotos} className="sr-only" />
             <div className="border-2 border-dashed border-gray-200 hover:border-amber-400 rounded-2xl p-8 text-center cursor-pointer transition-colors group">
@@ -880,7 +891,6 @@ export default function ListProperty() {
             </div>
           </label>
 
-          {/* Photo grid */}
           {form.photos.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
               {form.photos.map((photo, idx) => (
@@ -962,7 +972,6 @@ export default function ListProperty() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Simple top nav — no AgentNav */}
       <header className="bg-white border-b border-gray-100 sticky top-0 z-30">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <button onClick={() => navigate(-1)}
@@ -970,7 +979,7 @@ export default function ListProperty() {
             <ArrowLeft className="w-4 h-4" /> Back
           </button>
           <span className="text-sm font-semibold text-gray-700">List Your Property</span>
-          <div className="w-16" /> {/* spacer */}
+          <div className="w-16" />
         </div>
       </header>
 
@@ -1030,7 +1039,6 @@ export default function ListProperty() {
           {renderStep()}
         </div>
 
-        {/* Navigation buttons */}
         <div className="flex justify-between items-center">
           <button onClick={prevStep} disabled={step === 1}
             className={`flex items-center gap-2 px-5 py-3 rounded-xl font-semibold text-sm transition-colors ${
@@ -1055,7 +1063,6 @@ export default function ListProperty() {
         </div>
       </div>
 
-      {/* Preview modal */}
       {showPreview && (
         <PropertyDetails
           listing={previewListing}
@@ -1064,7 +1071,6 @@ export default function ListProperty() {
         />
       )}
 
-      {/* Fullscreen map */}
       {isMapExpanded && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
           <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between">

@@ -1,20 +1,12 @@
-// src/api/user/base.js
+// src/api/public/base.js
 const BASE_URL = import.meta.env.VITE_API_URL || '/api';
-
-export const getToken = () => {
-  try {
-    return JSON.parse(localStorage.getItem('user_token'))?.token;
-  } catch {
-    return null;
-  }
-};
 
 export const request = async (method, path, body = null) => {
   const options = {
     method,
+    credentials: 'include', // ← sends homi_token cookie automatically
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${getToken()}`,
     },
   };
   if (body) options.body = JSON.stringify(body);
