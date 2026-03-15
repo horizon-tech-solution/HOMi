@@ -12,10 +12,10 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'homibackend-production.up.railway.app',
         changeOrigin: true,
       },
-      '/uploads': 'http://localhost:8000',
+      '/uploads': 'homibackend-production.up.railway.app',
     }
   }
 })
