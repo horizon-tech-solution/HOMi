@@ -251,7 +251,7 @@ const ProAccount = () => {
             We're reviewing your ID document. You'll receive an email once your account is verified — usually within 24 hours.
           </p>
           <a
-            href="auth"
+            href="/auth"
             className="inline-block mt-6 px-8 py-3 bg-amber-600 text-white rounded-full font-bold text-sm hover:bg-amber-700 transition-colors"
           >
             Go to Login
@@ -714,7 +714,7 @@ const ProAccount = () => {
 
         <p className="text-center text-xs sm:text-sm text-gray-500 px-4">
           Already have an account?{' '}
-          <a href="auth" className="text-amber-600 hover:text-amber-700 font-semibold touch-manipulation">
+          <a href="/auth" className="text-amber-600 hover:text-amber-700 font-semibold touch-manipulation">
             Sign in
           </a>
         </p>
