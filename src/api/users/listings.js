@@ -25,7 +25,7 @@ export const uploadListingPhotos = async (listingId, formData) => {
   };
 
   const token = getToken();
-  const base  = import.meta.env?.VITE_API_URL || 'http://localhost:8000/api';
+  const base  = import.meta.env?.VITE_API_URL || 'https://homibackend-production.up.railway.app//api';
 
   const res = await fetch(`${base}/user/listings/${listingId}/photos`, {
     method:  'POST',

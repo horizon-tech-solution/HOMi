@@ -1,4 +1,4 @@
-export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
+export const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://homibackend-production.up.railway.app//api';
 
 export const PROPERTY_TYPES = [
   { value: 'apartment', label: 'Apartment' },
