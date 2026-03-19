@@ -150,7 +150,7 @@ export default function BecomeAgent() {
       }
 
       showAlert("Application submitted! We'll review within 1-3 business days.", 'success');
-      setTimeout(() => navigate('/user/dashboard'), 2500);
+      setTimeout(() => navigate('/user/home'), 2500);
 
     } catch (err) {
       showAlert(err.message || 'Submission failed');
