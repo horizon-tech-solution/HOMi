@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import UserNav from '../../../components/UserNav';
 import { fetchUserListings, deleteListing } from '../../../api/users/listings';
-
+import listIcon from '../../assets/images/list.svg';
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmtPrice = (p, type) =>
   Number(p).toLocaleString('fr-CM') + ' XAF' + (type === 'rent' ? '/mo' : '');
@@ -200,7 +200,7 @@ const ListingCard = ({ listing, onDelete }) => {
 const Empty = ({ onAdd }) => (
   <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
     <img
-      src="/src/assets/images/list.svg"
+      src={listIcon}
       alt="No listings"
       className="w-40 h-40 mb-2"
       style={{ opacity: 0.85 }}
