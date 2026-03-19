@@ -8,7 +8,8 @@ import {
 } from 'lucide-react';
 import UserNav from '../../../components/UserNav';
 import { fetchUserListings, deleteListing } from '../../../api/users/listings';
-import listIcon from '../../assets/images/list.svg';
+import listIcon from '../../../assets/images/list.svg';
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmtPrice = (p, type) =>
   Number(p).toLocaleString('fr-CM') + ' XAF' + (type === 'rent' ? '/mo' : '');
