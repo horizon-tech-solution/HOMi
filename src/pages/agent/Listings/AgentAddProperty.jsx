@@ -103,6 +103,12 @@ const EMPTY_FORM = {
   furnished: '', amenities: [], photos: [],
 };
 
+// ─── Safe coordinate parser — returns null instead of NaN ────────────────────
+const safeFloat = (val) => {
+  const n = parseFloat(val);
+  return isNaN(n) || !isFinite(n) ? null : n;
+};
+
 // ─── Geocoding helpers ────────────────────────────────────────────────────────
 const googlePlaceSearch = async (query) => {
   const url = `https://google-maps-api-free.p.rapidapi.com/google-find-place-search?place=${encodeURIComponent(query)}`;
@@ -130,12 +136,14 @@ const nominatimSearch = async (q) => {
     { headers: { 'Accept-Language': 'fr' } }
   );
   const data = await r.json();
-  return data.map(d => ({
-    name:              d.display_name.split(',').slice(0, 3).join(', '),
-    formatted_address: d.display_name,
-    lat:               parseFloat(d.lat),
-    lng:               parseFloat(d.lon),
-  }));
+  return data
+    .filter(d => safeFloat(d.lat) !== null && safeFloat(d.lon) !== null)
+    .map(d => ({
+      name:              d.display_name.split(',').slice(0, 3).join(', '),
+      formatted_address: d.display_name,
+      lat:               parseFloat(d.lat),
+      lng:               parseFloat(d.lon),
+    }));
 };
 
 const geocode = async (q) => {
@@ -199,7 +207,7 @@ export default function AgentAddProperty() {
   const [apiError, setApiError]           = useState('');
 
   // ── Map refs ──────────────────────────────────────────────────────────────
-  const mapRef         = useRef(null);   // ← single stable DOM ref, used by closure
+  const mapRef         = useRef(null);   // single stable DOM node — closure ref, NOT passed as prop
   const mapInstanceRef = useRef(null);
   const markerRef      = useRef(null);
   const tileLayerRef   = useRef(null);
@@ -215,7 +223,6 @@ export default function AgentAddProperty() {
   const [isLoadingLoc,  setIsLoadingLoc]  = useState(false);
   const [locationName,  setLocationName]  = useState('');
 
-  // ── Map search state ──────────────────────────────────────────────────────
   const [mapSearch,        setMapSearch]        = useState('');
   const [mapSearchResults, setMapSearchResults] = useState([]);
   const [mapSearching,     setMapSearching]     = useState(false);
@@ -223,6 +230,11 @@ export default function AgentAddProperty() {
   const skipNextSearch = useRef(false);
 
   const noRooms = NO_ROOMS_TYPES.includes(form.propertyType);
+
+  // Derived safe coordinates — null if empty/NaN, never NaN
+  const lat    = safeFloat(form.latitude);
+  const lng    = safeFloat(form.longitude);
+  const hasPin = lat !== null && lng !== null;
 
   useEffect(() => {
     if (noRooms) setForm(p => ({ ...p, bedrooms: '', bathrooms: '', yearBuilt: '', furnished: '' }));
@@ -277,7 +289,7 @@ export default function AgentAddProperty() {
       wheelPxPerZoomLevel: 60,
       tap:                 true,
       tapTolerance:        15,
-    }).setView([4.0511, 9.7679], 13);
+    }).setView([4.0511, 9.7679], 13);   // hardcoded valid numbers — never NaN
 
     const def = TILE_LAYERS.clean;
     tileLayerRef.current = L.tileLayer(def.url, {
@@ -289,7 +301,13 @@ export default function AgentAddProperty() {
 
     L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
 
-    map.on('click', (e) => placePin(e.latlng.lat, e.latlng.lng));
+    // Guard click — reject if latlng is missing or NaN
+    map.on('click', (e) => {
+      const cLat = e?.latlng?.lat;
+      const cLng = e?.latlng?.lng;
+      if (cLat == null || cLng == null || isNaN(cLat) || isNaN(cLng)) return;
+      placePin(cLat, cLng);
+    });
     map.on('click', () => setShowLayerMenu(false));
 
     mapInstanceRef.current = map;
@@ -338,11 +356,15 @@ export default function AgentAddProperty() {
     const pois  = await fetchPOIs(map.getBounds(), cat.osmTag, cat.osmValue);
     const layer = L.layerGroup();
     pois.forEach((poi) => {
+      const poiLat = safeFloat(poi.lat);
+      const poiLon = safeFloat(poi.lon);
+      if (poiLat === null || poiLon === null) return;   // skip bad POI coords
+
       const icon = L.divIcon({
         html: `<div style="width:26px;height:26px;background:${cat.color};border:2.5px solid white;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.22);font-size:12px;">${POI_EMOJI[cat.id] || '📍'}</div>`,
         className: '', iconSize: [26, 26], iconAnchor: [13, 13], popupAnchor: [0, -13],
       });
-      L.marker([poi.lat, poi.lon], { icon })
+      L.marker([poiLat, poiLon], { icon })
         .bindPopup(`<div style="font-family:system-ui;padding:6px;min-width:150px;">
           <div style="font-weight:700;font-size:13px;margin-bottom:3px;">${poi.tags?.name || cat.label}</div>
           ${poi.tags?.['addr:street'] ? `<div style="font-size:11px;color:#6B7280;">${poi.tags['addr:street']}</div>` : ''}
@@ -355,9 +377,13 @@ export default function AgentAddProperty() {
     setPoiLoading(prev => { const s = new Set(prev); s.delete(cat.id); return s; });
   };
 
-  // ── Place pin + reverse geocode ───────────────────────────────────────────
-  const placePin = (lat, lng) => {
-    if (!mapInstanceRef.current) return;
+  // ── Place pin ─────────────────────────────────────────────────────────────
+  const placePin = (rawLat, rawLng) => {
+    const pinLat = typeof rawLat === 'number' ? rawLat : parseFloat(rawLat);
+    const pinLng = typeof rawLng === 'number' ? rawLng : parseFloat(rawLng);
+    // Hard guard — never let NaN or Infinity reach Leaflet
+    if (!mapInstanceRef.current || !isFinite(pinLat) || !isFinite(pinLng)) return;
+
     const L = window.L;
     if (markerRef.current) markerRef.current.remove();
 
@@ -385,32 +411,36 @@ export default function AgentAddProperty() {
       className: '', iconSize: [105, 65], iconAnchor: [52, 65],
     });
 
-    markerRef.current = L.marker([lat, lng], { icon }).addTo(mapInstanceRef.current);
-    mapInstanceRef.current.flyTo([lat, lng], Math.max(mapInstanceRef.current.getZoom(), 17), {
+    markerRef.current = L.marker([pinLat, pinLng], { icon }).addTo(mapInstanceRef.current);
+    mapInstanceRef.current.flyTo([pinLat, pinLng], Math.max(mapInstanceRef.current.getZoom(), 17), {
       animate: true, duration: 0.8,
     });
 
-    setForm(p => ({ ...p, latitude: lat.toFixed(6), longitude: lng.toFixed(6) }));
+    setForm(p => ({ ...p, latitude: pinLat.toFixed(6), longitude: pinLng.toFixed(6) }));
     setErrors(p => ({ ...p, coordinates: '' }));
-    reverseGeocode(lat, lng);
+    reverseGeocode(pinLat, pinLng);
   };
 
   // ── Select search result ──────────────────────────────────────────────────
   const flyToSearchResult = (result) => {
     if (!mapInstanceRef.current) return;
+    const rLat = safeFloat(result.lat);
+    const rLng = safeFloat(result.lng);
+    if (rLat === null || rLng === null) return;
     skipNextSearch.current = true;
     setMapSearch('');
     setMapSearchResults([]);
-    placePin(result.lat, result.lng);
+    placePin(rLat, rLng);
   };
 
   // ── Reverse geocode ───────────────────────────────────────────────────────
-  const reverseGeocode = async (lat, lng) => {
+  const reverseGeocode = async (pinLat, pinLng) => {
+    if (!isFinite(pinLat) || !isFinite(pinLng)) return;
     setIsLoadingLoc(true);
     setLocationName('Detecting address…');
     try {
       const r = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${pinLat}&lon=${pinLng}&zoom=18&addressdetails=1`,
         { headers: { 'Accept-Language': 'fr' } }
       );
       const d = await r.json();
@@ -422,15 +452,13 @@ export default function AgentAddProperty() {
           city, town, village, municipality,
           state, region, county,
         } = a;
-
-        const streetName    = road || street || pedestrian || footway || path || '';
-        const streetAddress = [house_number, streetName].filter(Boolean).join(' ').trim();
-        const hood          = suburb || neighbourhood || quarter || residential || '';
-        const resolvedCity  = city || town || village || municipality || '';
+        const streetName     = road || street || pedestrian || footway || path || '';
+        const streetAddress  = [house_number, streetName].filter(Boolean).join(' ').trim();
+        const hood           = suburb || neighbourhood || quarter || residential || '';
+        const resolvedCity   = city || town || village || municipality || '';
         const resolvedRegion = state || region || county || '';
-        const locParts      = [hood, resolvedCity, resolvedRegion].filter(Boolean);
-        setLocationName(locParts.join(', ') || `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-
+        const locParts       = [hood, resolvedCity, resolvedRegion].filter(Boolean);
+        setLocationName(locParts.join(', ') || `${pinLat.toFixed(4)}, ${pinLng.toFixed(4)}`);
         setForm(p => ({
           ...p,
           address:       streetAddress || (hood ? `${hood}` : p.address),
@@ -439,10 +467,10 @@ export default function AgentAddProperty() {
           region:        resolvedRegion|| p.region,
         }));
       } else {
-        setLocationName(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+        setLocationName(`${pinLat.toFixed(4)}, ${pinLng.toFixed(4)}`);
       }
     } catch {
-      setLocationName(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+      setLocationName(`${pinLat.toFixed(4)}, ${pinLng.toFixed(4)}`);
     } finally {
       setIsLoadingLoc(false);
     }
@@ -451,9 +479,10 @@ export default function AgentAddProperty() {
   const useMyLocation = () => {
     if (!navigator.geolocation) return alert('Geolocation not supported.');
     navigator.geolocation.getCurrentPosition(
-      ({ coords: { latitude: lat, longitude: lng } }) => {
-        mapInstanceRef.current?.setView([lat, lng], 17);
-        placePin(lat, lng);
+      ({ coords: { latitude: gLat, longitude: gLng } }) => {
+        if (!isFinite(gLat) || !isFinite(gLng)) return;
+        mapInstanceRef.current?.setView([gLat, gLng], 17);
+        placePin(gLat, gLng);
       },
       () => alert('Unable to get location. Please pin manually.')
     );
@@ -519,10 +548,10 @@ export default function AgentAddProperty() {
       if (!form.price)              e.price        = 'Price is required';
     }
     if (s === 2) {
-      if (!form.address.trim())              e.address     = 'Address is required';
-      if (!form.city.trim())                 e.city        = 'City is required';
-      if (!form.region.trim())               e.region      = 'Region is required';
-      if (!form.latitude || !form.longitude) e.coordinates = 'Please pin the location on the map';
+      if (!form.address.trim()) e.address = 'Address is required';
+      if (!form.city.trim())    e.city    = 'City is required';
+      if (!form.region.trim())  e.region  = 'Region is required';
+      if (!hasPin)              e.coordinates = 'Please pin the location on the map';
     }
     if (s === 4 && !form.photos.length) e.photos = 'At least one photo is required';
     setErrors(e);
@@ -553,7 +582,7 @@ export default function AgentAddProperty() {
         address:          form.address,
         city:             form.city,
         region:           form.region,
-        coordinates:      form.latitude && form.longitude ? `${form.latitude},${form.longitude}` : null,
+        coordinates:      hasPin ? `${lat},${lng}` : null,
         furnished:        !noRooms ? (form.furnished || null) : null,
         parking:          form.amenities.includes('parking')   ? 1 : 0,
         generator:        form.amenities.includes('generator') ? 1 : 0,
@@ -587,7 +616,7 @@ export default function AgentAddProperty() {
     }
   };
 
-  // ── Preview shape ──────────────────────────────────────────────────────────
+  // ── Preview — lat/lng always safe numbers, never NaN ──────────────────────
   const previewListing = {
     id: 'preview', title: form.title || 'Property Title',
     price: parseInt(form.price) || 0,
@@ -602,8 +631,8 @@ export default function AgentAddProperty() {
     property_type:    form.propertyType,
     image:  form.photos[0]?.preview || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=600',
     images: form.photos.map(p => p.preview),
-    lat: parseFloat(form.latitude)  || 4.0511,
-    lng: parseFloat(form.longitude) || 9.7679,
+    lat: lat ?? 4.0511,   // safeFloat returns null — null ?? fallback never produces NaN
+    lng: lng ?? 9.7679,
     description: form.description,
     parking:   form.amenities.includes('parking')   ? 1 : 0,
     generator: form.amenities.includes('generator') ? 1 : 0,
@@ -615,14 +644,11 @@ export default function AgentAddProperty() {
       errors[field] ? 'border-red-400 bg-red-50' : 'border-gray-200',
     ].filter(Boolean).join(' ');
 
-  // ── Shared map UI ─────────────────────────────────────────────────────────
-  // FIX: No longer accepts containerRef prop — uses mapRef from closure directly.
-  // This prevents Leaflet from being orphaned when MapUI re-renders.
+  // ── Map UI — closure ref, no containerRef prop ────────────────────────────
   const MapUI = ({ height = '420px', showAddressPanel = false }) => (
     <div className="relative w-full" style={{ height }}>
       <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
 
-      {/* Loading overlay */}
       {!mapReady && (
         <div className="absolute inset-0 bg-gray-50 flex flex-col items-center justify-center z-[2000]">
           <MapPin className="w-12 h-12 text-amber-500 animate-bounce mb-3" />
@@ -631,7 +657,7 @@ export default function AgentAddProperty() {
       )}
 
       {mapReady && (<>
-        {/* ── Search bar ────────────────────────────────────────────────── */}
+        {/* Search bar */}
         <div className="absolute top-3 left-3 z-[1000]" style={{ maxWidth: 310, width: 'calc(100% - 60px)' }}>
           <div className="relative">
             <div className="flex items-center bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
@@ -650,7 +676,6 @@ export default function AgentAddProperty() {
                 )
               }
             </div>
-
             {mapSearchResults.length > 0 && (
               <div className="absolute top-full mt-1.5 left-0 right-0 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[1001]">
                 <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
@@ -676,7 +701,7 @@ export default function AgentAddProperty() {
           </div>
         </div>
 
-        {/* ── Right controls ─────────────────────────────────────────────── */}
+        {/* Right controls */}
         <div className="absolute top-3 right-3 flex flex-col gap-2 z-[1000]">
           <button onClick={() => mapInstanceRef.current?.zoomIn()}
             className="w-10 h-10 bg-white rounded-xl shadow-lg hover:shadow-xl hover:bg-gray-50 flex items-center justify-center transition-all border border-gray-200">
@@ -691,7 +716,6 @@ export default function AgentAddProperty() {
             title="My location">
             <Crosshair className="w-4 h-4 text-white" />
           </button>
-          {/* Layer switcher */}
           <div className="relative">
             <button onClick={() => setShowLayerMenu(p => !p)}
               className={`w-10 h-10 rounded-xl shadow-lg flex items-center justify-center transition-all border ${
@@ -720,7 +744,6 @@ export default function AgentAddProperty() {
               </div>
             )}
           </div>
-          {/* Fullscreen */}
           <button onClick={toggleMap}
             className="w-10 h-10 bg-white rounded-xl shadow-lg hover:shadow-xl hover:bg-gray-50 flex items-center justify-center transition-all border border-gray-200">
             {isMapExpanded
@@ -729,7 +752,7 @@ export default function AgentAddProperty() {
           </button>
         </div>
 
-        {/* ── POI bar (fullscreen only) ───────────────────────────────────── */}
+        {/* POI bar (fullscreen only) */}
         {showAddressPanel && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-1.5 bg-white rounded-2xl shadow-lg border border-gray-100 px-2 py-1.5">
             {POI_CATEGORIES.map(cat => {
@@ -753,20 +776,20 @@ export default function AgentAddProperty() {
           </div>
         )}
 
-        {/* ── Pinned badge ────────────────────────────────────────────────── */}
-        {form.latitude && form.longitude && (
+        {/* Pinned badge */}
+        {hasPin && (
           <div className="absolute bottom-8 left-3 z-[1000]">
             <div className="flex items-center gap-2 bg-white rounded-xl shadow-lg border border-green-200 px-3 py-2 max-w-[280px]">
               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
               <span className="text-xs font-semibold text-green-700 truncate">
-                {isLoadingLoc ? 'Detecting address…' : locationName || `${parseFloat(form.latitude).toFixed(4)}, ${parseFloat(form.longitude).toFixed(4)}`}
+                {isLoadingLoc ? 'Detecting address…' : locationName || `${lat.toFixed(4)}, ${lng.toFixed(4)}`}
               </span>
             </div>
           </div>
         )}
 
-        {/* ── Tap hint ────────────────────────────────────────────────────── */}
-        {!form.latitude && (
+        {/* Tap hint */}
+        {!hasPin && (
           <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none">
             <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg border border-gray-100 px-4 py-2.5">
               <p className="text-xs font-semibold text-gray-600 whitespace-nowrap">👆 Click the map to drop your pin</p>
@@ -774,8 +797,8 @@ export default function AgentAddProperty() {
           </div>
         )}
 
-        {/* ── Full address panel (fullscreen mode) ────────────────────────── */}
-        {showAddressPanel && form.latitude && form.longitude && (
+        {/* Full address panel (fullscreen) */}
+        {showAddressPanel && hasPin && (
           <div className="absolute bottom-6 right-4 w-72 bg-white/96 backdrop-blur-sm rounded-2xl p-4 shadow-2xl border border-gray-200 z-[1000]">
             <div className="flex items-start gap-3">
               <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
@@ -791,7 +814,7 @@ export default function AgentAddProperty() {
                   : <p className="text-xs text-gray-600 leading-relaxed break-words">{locationName}</p>
                 }
                 <p className="text-[11px] text-gray-400 font-mono mt-1">
-                  {parseFloat(form.latitude).toFixed(6)}, {parseFloat(form.longitude).toFixed(6)}
+                  {lat.toFixed(6)}, {lng.toFixed(6)}
                 </p>
                 <div className="mt-2.5 pt-2 border-t border-gray-100 grid grid-cols-2 gap-1.5">
                   {[
@@ -833,28 +856,24 @@ export default function AgentAddProperty() {
   const renderStep = () => {
     switch (step) {
 
-      // ── STEP 1 ──────────────────────────────────────────────────────────
       case 1: return (
         <div className="space-y-6">
           <div>
             <h2 className="text-2xl font-bold text-gray-900">Basic Information</h2>
             <p className="text-gray-500 mt-1 text-sm">Tell us about your property</p>
           </div>
-
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Property Title *</label>
             <input type="text" value={form.title} onChange={e => set('title', e.target.value)}
               placeholder="e.g., Modern 3BR Apartment in Bonamoussadi" className={fc('title')} />
             {errors.title && <p className="text-red-500 text-xs mt-1">{errors.title}</p>}
           </div>
-
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Description *</label>
             <textarea value={form.description} onChange={e => set('description', e.target.value)}
               placeholder="Describe your property in detail…" rows={5} className={fc('description')} />
             {errors.description && <p className="text-red-500 text-xs mt-1">{errors.description}</p>}
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Property Type *</label>
@@ -879,7 +898,6 @@ export default function AgentAddProperty() {
               {errors.listingType && <p className="text-red-500 text-xs mt-1">{errors.listingType}</p>}
             </div>
           </div>
-
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Price (FCFA){form.listingType === 'rent' ? ' / month' : ''} *
@@ -895,7 +913,6 @@ export default function AgentAddProperty() {
             </div>
             {errors.price && <p className="text-red-500 text-xs mt-1">{errors.price}</p>}
           </div>
-
           {!noRooms && (<>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
@@ -943,7 +960,6 @@ export default function AgentAddProperty() {
               </div>
             </div>
           </>)}
-
           {noRooms && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -961,28 +977,22 @@ export default function AgentAddProperty() {
         </div>
       );
 
-      // ── STEP 2: Location ──────────────────────────────────────────────────
       case 2: return (
         <div className="space-y-5">
           <div>
             <h2 className="text-2xl font-bold text-gray-900">Property Location</h2>
             <p className="text-gray-500 mt-1 text-sm">Search for your street, neighbourhood or city — then click the map to drop a pin. Address fills automatically.</p>
           </div>
-
-          {/* Map — uses mapRef via closure, no containerRef prop */}
           <div className={`relative rounded-2xl overflow-hidden border-2 transition-colors ${
-            errors.coordinates ? 'border-red-300' : form.latitude ? 'border-green-300' : 'border-gray-200'
+            errors.coordinates ? 'border-red-300' : hasPin ? 'border-green-300' : 'border-gray-200'
           }`}>
             <MapUI height="440px" showAddressPanel={false} />
           </div>
-
           {errors.coordinates && (
             <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-700 text-sm">
               <AlertCircle className="w-4 h-4 flex-shrink-0" /> {errors.coordinates}
             </div>
           )}
-
-          {/* Auto-filled address fields */}
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -1015,16 +1025,12 @@ export default function AgentAddProperty() {
               </div>
             </div>
           </div>
-
-          {/* Coordinates badge */}
-          {form.latitude && form.longitude && (
+          {hasPin && (
             <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
               <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-green-700">Location pinned ✓</p>
-                <p className="text-xs text-green-600 font-mono">
-                  {parseFloat(form.latitude).toFixed(6)}, {parseFloat(form.longitude).toFixed(6)}
-                </p>
+                <p className="text-xs text-green-600 font-mono">{lat.toFixed(6)}, {lng.toFixed(6)}</p>
               </div>
               <button type="button" onClick={() => {
                 setForm(p => ({ ...p, latitude: '', longitude: '' }));
@@ -1035,7 +1041,6 @@ export default function AgentAddProperty() {
               </button>
             </div>
           )}
-
           <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 flex items-start gap-2 text-sm text-amber-800">
             <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <span>Tip: Use <strong>Satellite</strong> or <strong>Hybrid</strong> view for better accuracy when pinning the exact building.</span>
@@ -1043,7 +1048,6 @@ export default function AgentAddProperty() {
         </div>
       );
 
-      // ── STEP 3: Amenities ─────────────────────────────────────────────────
       case 3: return (
         <div className="space-y-6">
           <div>
@@ -1089,7 +1093,6 @@ export default function AgentAddProperty() {
         </div>
       );
 
-      // ── STEP 4: Photos ────────────────────────────────────────────────────
       case 4: return (
         <div className="space-y-6">
           <div>
@@ -1135,7 +1138,6 @@ export default function AgentAddProperty() {
         </div>
       );
 
-      // ── STEP 5: Review ────────────────────────────────────────────────────
       case 5: return (
         <div className="space-y-6">
           <div>
@@ -1157,10 +1159,10 @@ export default function AgentAddProperty() {
                 { label: 'Region',   value: form.region  || '—' },
                 { label: 'Type',     value: `${form.propertyType || '—'} · ${form.listingType === 'sale' ? 'For Sale' : form.listingType === 'rent' ? 'For Rent' : '—'}` },
                 ...(!noRooms ? [{ label: 'Beds / Baths', value: `${form.bedrooms || '—'} BD · ${form.bathrooms || '—'} BA` }] : []),
-                { label: 'Area',       value: form.area ? `${formatNum(form.area)} m²` : '—' },
-                { label: 'Photos',     value: `${form.photos.length} selected` },
-                { label: 'Amenities',  value: form.amenities.length ? form.amenities.join(', ') : 'None' },
-                { label: 'Pin',        value: form.latitude ? `${parseFloat(form.latitude).toFixed(4)}, ${parseFloat(form.longitude).toFixed(4)}` : '—' },
+                { label: 'Area',      value: form.area ? `${formatNum(form.area)} m²` : '—' },
+                { label: 'Photos',    value: `${form.photos.length} selected` },
+                { label: 'Amenities', value: form.amenities.length ? form.amenities.join(', ') : 'None' },
+                { label: 'Pin',       value: hasPin ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : '—' },
               ].map(({ label, value }) => (
                 <div key={label} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
                   <p className="text-gray-400 text-xs mb-0.5">{label}</p>
@@ -1210,7 +1212,6 @@ export default function AgentAddProperty() {
           </div>
         )}
 
-        {/* Step indicators */}
         <div className="mb-8 overflow-x-auto pb-1">
           <div className="flex items-center min-w-max md:min-w-0">
             {STEPS.map((s, i) => {
@@ -1261,12 +1262,10 @@ export default function AgentAddProperty() {
         </div>
       </div>
 
-      {/* Preview modal */}
       {showPreview && (
         <PropertyDetails listing={previewListing} isOpen={showPreview} onClose={() => setShowPreview(false)} />
       )}
 
-      {/* Fullscreen map overlay */}
       {isMapExpanded && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
           <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between flex-shrink-0">
