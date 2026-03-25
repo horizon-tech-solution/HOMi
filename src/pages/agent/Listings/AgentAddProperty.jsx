@@ -9,7 +9,7 @@ import {
   ArrowLeft, ArrowRight, Check, Home, MapPin, Sparkles,
   Image as ImageIcon, Eye, Building2, DollarSign, Ruler,
   Bed, Bath, Car, Wifi, Droplet, Zap, Wind, Shield, Camera,
-  Upload, X, Navigation, AlertCircle, Maximize2, Minimize2,
+  Upload, X, AlertCircle, Maximize2, Minimize2,
   Loader2, AlertTriangle, Search, ZoomIn, ZoomOut, Info,
   Layers, Crosshair, Mountain, Coffee, Hospital, GraduationCap,
   ShoppingBag, Map as MapIcon2, Satellite,
@@ -48,7 +48,6 @@ const STEPS = [
   { number: 5, title: 'Review',     icon: Eye       },
 ];
 
-// ── Same tile layers as Map.jsx ───────────────────────────────────────────────
 const TILE_LAYERS = {
   street: {
     label: 'Street', icon: MapIcon2,
@@ -86,7 +85,6 @@ const TILE_LAYERS = {
   },
 };
 
-// ── POI categories (same as Map.jsx) ─────────────────────────────────────────
 const POI_CATEGORIES = [
   { id: 'restaurant', label: 'Food',     icon: Coffee,        color: '#F59E0B', osmTag: 'amenity', osmValue: 'restaurant'  },
   { id: 'hospital',   label: 'Health',   icon: Hospital,      color: '#EF4444', osmTag: 'amenity', osmValue: 'hospital'    },
@@ -105,7 +103,7 @@ const EMPTY_FORM = {
   furnished: '', amenities: [], photos: [],
 };
 
-// ─── Geocoding helpers (same as Map.jsx) ──────────────────────────────────────
+// ─── Geocoding helpers ────────────────────────────────────────────────────────
 const googlePlaceSearch = async (query) => {
   const url = `https://google-maps-api-free.p.rapidapi.com/google-find-place-search?place=${encodeURIComponent(query)}`;
   const res = await fetch(url, {
@@ -192,31 +190,30 @@ export default function AgentAddProperty() {
   const navigate = useNavigate();
   const { user } = useUserAuth();
 
-  const [step, setStep]                   = useState(1);
-  const [form, setForm]                   = useState(EMPTY_FORM);
-  const [errors, setErrors]               = useState({});
-  const [showPreview, setShowPreview]     = useState(false);
+  const [step, setStep]               = useState(1);
+  const [form, setForm]               = useState(EMPTY_FORM);
+  const [errors, setErrors]           = useState({});
+  const [showPreview, setShowPreview] = useState(false);
   const [isMapExpanded, setIsMapExpanded] = useState(false);
   const [isSubmitting, setIsSubmitting]   = useState(false);
   const [apiError, setApiError]           = useState('');
 
-  // ── Map state ─────────────────────────────────────────────────────────────
-  const mapRef          = useRef(null);
-  const mapExpandedRef  = useRef(null);
-  const mapInstanceRef  = useRef(null);
-  const markerRef       = useRef(null);
-  const tileLayerRef    = useRef(null);
-  const labelLayerRef   = useRef(null);
-  const poiLayersRef    = useRef({});
-  const initCalledRef   = useRef(false);
+  // ── Map refs ──────────────────────────────────────────────────────────────
+  const mapRef         = useRef(null);   // ← single stable DOM ref, used by closure
+  const mapInstanceRef = useRef(null);
+  const markerRef      = useRef(null);
+  const tileLayerRef   = useRef(null);
+  const labelLayerRef  = useRef(null);
+  const poiLayersRef   = useRef({});
+  const initCalledRef  = useRef(false);
 
-  const [mapReady,        setMapReady]        = useState(false);
-  const [activeLayer,     setActiveLayer]     = useState('clean');
-  const [showLayerMenu,   setShowLayerMenu]   = useState(false);
-  const [activePOIs,      setActivePOIs]      = useState(new Set());
-  const [poiLoading,      setPoiLoading]      = useState(new Set());
-  const [isLoadingLoc,    setIsLoadingLoc]    = useState(false);
-  const [locationName,    setLocationName]    = useState('');
+  const [mapReady,      setMapReady]      = useState(false);
+  const [activeLayer,   setActiveLayer]   = useState('clean');
+  const [showLayerMenu, setShowLayerMenu] = useState(false);
+  const [activePOIs,    setActivePOIs]    = useState(new Set());
+  const [poiLoading,    setPoiLoading]    = useState(new Set());
+  const [isLoadingLoc,  setIsLoadingLoc]  = useState(false);
+  const [locationName,  setLocationName]  = useState('');
 
   // ── Map search state ──────────────────────────────────────────────────────
   const [mapSearch,        setMapSearch]        = useState('');
@@ -231,11 +228,8 @@ export default function AgentAddProperty() {
     if (noRooms) setForm(p => ({ ...p, bedrooms: '', bathrooms: '', yearBuilt: '', furnished: '' }));
   }, [form.propertyType]);
 
-  // ── Init map on step 2 ────────────────────────────────────────────────────
   useEffect(() => {
-    if (step === 2 && !initCalledRef.current) {
-      initMap();
-    }
+    if (step === 2 && !initCalledRef.current) initMap();
   }, [step]);
 
   useEffect(() => {
@@ -263,11 +257,9 @@ export default function AgentAddProperty() {
   // ── Map init ──────────────────────────────────────────────────────────────
   const initMap = () => {
     injectCSS('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'leaflet-css');
-
     const ready = window.L
       ? Promise.resolve()
       : loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', 'leaflet-js', 'L');
-
     ready.then(() => buildMap()).catch(console.error);
   };
 
@@ -412,7 +404,7 @@ export default function AgentAddProperty() {
     placePin(result.lat, result.lng);
   };
 
-  // ── Reverse geocode — detailed address extraction ─────────────────────────
+  // ── Reverse geocode ───────────────────────────────────────────────────────
   const reverseGeocode = async (lat, lng) => {
     setIsLoadingLoc(true);
     setLocationName('Detecting address…');
@@ -429,27 +421,16 @@ export default function AgentAddProperty() {
           suburb, neighbourhood, quarter, residential,
           city, town, village, municipality,
           state, region, county,
-          postcode,
         } = a;
 
-        // Street address
         const streetName    = road || street || pedestrian || footway || path || '';
         const streetAddress = [house_number, streetName].filter(Boolean).join(' ').trim();
-
-        // Neighbourhood / district
-        const hood = suburb || neighbourhood || quarter || residential || '';
-
-        // City
-        const resolvedCity = city || town || village || municipality || '';
-
-        // Region
+        const hood          = suburb || neighbourhood || quarter || residential || '';
+        const resolvedCity  = city || town || village || municipality || '';
         const resolvedRegion = state || region || county || '';
-
-        // Human-readable location badge
-        const locParts = [hood, resolvedCity, resolvedRegion].filter(Boolean);
+        const locParts      = [hood, resolvedCity, resolvedRegion].filter(Boolean);
         setLocationName(locParts.join(', ') || `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
 
-        // Auto-fill form fields
         setForm(p => ({
           ...p,
           address:       streetAddress || (hood ? `${hood}` : p.address),
@@ -480,13 +461,7 @@ export default function AgentAddProperty() {
 
   const toggleMap = () => {
     setIsMapExpanded(p => !p);
-    setTimeout(() => {
-      mapInstanceRef.current?.invalidateSize();
-      // Re-attach the expanded container ref on expansion
-      if (!isMapExpanded && mapExpandedRef.current && mapInstanceRef.current) {
-        mapInstanceRef.current.getContainer(); // force Leaflet to re-check size
-      }
-    }, 150);
+    setTimeout(() => mapInstanceRef.current?.invalidateSize(), 150);
   };
 
   // ── Form helpers ───────────────────────────────────────────────────────────
@@ -640,10 +615,12 @@ export default function AgentAddProperty() {
       errors[field] ? 'border-red-400 bg-red-50' : 'border-gray-200',
     ].filter(Boolean).join(' ');
 
-  // ── Shared map UI (used inline and in fullscreen) ─────────────────────────
-  const MapUI = ({ containerRef, height = '420px', showAddressPanel = false }) => (
+  // ── Shared map UI ─────────────────────────────────────────────────────────
+  // FIX: No longer accepts containerRef prop — uses mapRef from closure directly.
+  // This prevents Leaflet from being orphaned when MapUI re-renders.
+  const MapUI = ({ height = '420px', showAddressPanel = false }) => (
     <div className="relative w-full" style={{ height }}>
-      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
 
       {/* Loading overlay */}
       {!mapReady && (
@@ -701,17 +678,14 @@ export default function AgentAddProperty() {
 
         {/* ── Right controls ─────────────────────────────────────────────── */}
         <div className="absolute top-3 right-3 flex flex-col gap-2 z-[1000]">
-          {/* Zoom in */}
           <button onClick={() => mapInstanceRef.current?.zoomIn()}
             className="w-10 h-10 bg-white rounded-xl shadow-lg hover:shadow-xl hover:bg-gray-50 flex items-center justify-center transition-all border border-gray-200">
             <ZoomIn className="w-4 h-4 text-gray-700" />
           </button>
-          {/* Zoom out */}
           <button onClick={() => mapInstanceRef.current?.zoomOut()}
             className="w-10 h-10 bg-white rounded-xl shadow-lg hover:shadow-xl hover:bg-gray-50 flex items-center justify-center transition-all border border-gray-200">
             <ZoomOut className="w-4 h-4 text-gray-700" />
           </button>
-          {/* My location */}
           <button onClick={useMyLocation}
             className="w-10 h-10 bg-amber-600 hover:bg-amber-700 rounded-xl shadow-lg flex items-center justify-center transition-all"
             title="My location">
@@ -755,12 +729,12 @@ export default function AgentAddProperty() {
           </button>
         </div>
 
-        {/* ── POI bar (shown in fullscreen) ──────────────────────────────── */}
+        {/* ── POI bar (fullscreen only) ───────────────────────────────────── */}
         {showAddressPanel && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-1.5 bg-white rounded-2xl shadow-lg border border-gray-100 px-2 py-1.5">
             {POI_CATEGORIES.map(cat => {
-              const Icon     = cat.icon;
-              const isActive = activePOIs.has(cat.id);
+              const Icon      = cat.icon;
+              const isActive  = activePOIs.has(cat.id);
               const isLoading = poiLoading.has(cat.id);
               return (
                 <button key={cat.id} onClick={() => togglePOI(cat)}
@@ -819,13 +793,12 @@ export default function AgentAddProperty() {
                 <p className="text-[11px] text-gray-400 font-mono mt-1">
                   {parseFloat(form.latitude).toFixed(6)}, {parseFloat(form.longitude).toFixed(6)}
                 </p>
-                {/* Address fields preview */}
                 <div className="mt-2.5 pt-2 border-t border-gray-100 grid grid-cols-2 gap-1.5">
                   {[
-                    { label: 'Address', value: form.address },
-                    { label: 'District', value: form.neighbourhood },
-                    { label: 'City',    value: form.city   },
-                    { label: 'Region',  value: form.region },
+                    { label: 'Address',  value: form.address       },
+                    { label: 'District', value: form.neighbourhood  },
+                    { label: 'City',     value: form.city           },
+                    { label: 'Region',   value: form.region         },
                   ].filter(f => f.value).map(f => (
                     <div key={f.label} className="bg-gray-50 rounded-lg px-2 py-1.5">
                       <p className="text-[9px] text-gray-400 uppercase font-bold tracking-wider">{f.label}</p>
@@ -996,11 +969,11 @@ export default function AgentAddProperty() {
             <p className="text-gray-500 mt-1 text-sm">Search for your street, neighbourhood or city — then click the map to drop a pin. Address fills automatically.</p>
           </div>
 
-          {/* Map */}
+          {/* Map — uses mapRef via closure, no containerRef prop */}
           <div className={`relative rounded-2xl overflow-hidden border-2 transition-colors ${
             errors.coordinates ? 'border-red-300' : form.latitude ? 'border-green-300' : 'border-gray-200'
           }`}>
-            <MapUI containerRef={mapRef} height="440px" showAddressPanel={false} />
+            <MapUI height="440px" showAddressPanel={false} />
           </div>
 
           {errors.coordinates && (
@@ -1312,7 +1285,7 @@ export default function AgentAddProperty() {
             </button>
           </div>
           <div className="flex-1 relative overflow-hidden">
-            <MapUI containerRef={mapRef} height="100%" showAddressPanel={true} />
+            <MapUI height="100%" showAddressPanel={true} />
           </div>
         </div>
       )}

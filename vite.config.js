@@ -16,6 +16,7 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/uploads': 'homibackend-production.up.railway.app',
+      
     }
   }
 })
