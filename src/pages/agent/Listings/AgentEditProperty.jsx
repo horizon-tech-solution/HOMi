@@ -44,7 +44,6 @@ const STEPS = [
 ];
 
 // ─── DB row → form state ──────────────────────────────────────────────────────
-// Handles all column name differences between DB and form
 const dbToForm = (row) => {
   let latitude = '', longitude = '';
   if (row.coordinates) {
@@ -52,14 +51,12 @@ const dbToForm = (row) => {
     if (lat && lng) { latitude = lat; longitude = lng; }
   }
 
-  // Amenities: parking + generator are DB tinyint(1) columns
   const amenities = [];
   if (Number(row.parking)   === 1) amenities.push('parking');
   if (Number(row.generator) === 1) amenities.push('generator');
   if (Array.isArray(row.amenities))
     row.amenities.forEach(a => { if (!amenities.includes(a)) amenities.push(a); });
 
-  // Photos from listing_photos table
   const photos = (row.photos || []).map((p, i) => ({
     id: p.id ?? i, preview: p.photo_url, photo_url: p.photo_url,
     is_cover: Number(p.is_cover) === 1, isExisting: true,
@@ -70,20 +67,20 @@ const dbToForm = (row) => {
   return {
     title:        row.title            ?? '',
     description:  row.description      ?? '',
-    propertyType: row.property_type    ?? '',   // DB: property_type
-    listingType:  row.transaction_type ?? '',   // DB: transaction_type
+    propertyType: row.property_type    ?? '',
+    listingType:  row.transaction_type ?? '',
     price:        row.price            != null ? String(row.price)      : '',
     bedrooms:     row.bedrooms         != null ? String(row.bedrooms)   : '',
     bathrooms:    row.bathrooms        != null ? String(row.bathrooms)  : '',
     area:         row.area             != null ? String(row.area)       : '',
-    yearBuilt:    row.year_built       != null ? String(row.year_built) : '', // DB: year_built
+    yearBuilt:    row.year_built       != null ? String(row.year_built) : '',
     address:      row.address          ?? '',
     city:         row.city             ?? '',
     region:       row.region           ?? '',
     neighborhood: row.neighborhood     ?? '',
     latitude,
     longitude,
-    furnished:    row.furnished        ?? '',   // DB enum: unfurnished|semi-furnished|furnished
+    furnished:    row.furnished        ?? '',
     amenities,
     photos,
     petFriendly:  '',
@@ -141,12 +138,11 @@ export default function AgentEditProperty() {
   const markerRef      = useRef(null);
   const [mapReady, setMapReady] = useState(false);
 
-  // ── 1. Load listing via fetchListing(id) ──────────────────────────────────
+  // ── 1. Load listing ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!listingId) { setLoadError('No listing ID in URL.'); setIsLoading(false); return; }
     (async () => {
       try {
-        // fetchListing calls GET /agent/listings/:id — returns raw DB row
         const data   = await fetchListing(listingId);
         const mapped = dbToForm(data);
         setForm(mapped);
@@ -160,15 +156,35 @@ export default function AgentEditProperty() {
     })();
   }, [listingId]);
 
-  // ── 2. Map init on step 2 ─────────────────────────────────────────────────
+  // ── 2. Map: init when arriving at step 2, destroy when leaving ───────────
   useEffect(() => {
-    if (step === 2 && !mapReady && !isLoading && form) initMap();
-  }, [step, isLoading, form]);
+    if (step === 2 && !isLoading && form) {
+      // Destroy any stale instance first (handles back-navigation to step 2)
+      destroyMap();
+      initMap();
+    }
+
+    // Cleanup when leaving step 2
+    return () => {
+      if (step === 2) destroyMap();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, isLoading]);
 
   useEffect(() => {
     document.body.style.overflow = isMapExpanded ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
   }, [isMapExpanded]);
+
+  // ── Destroy map helper (prevents "already initialized" Leaflet error) ─────
+  const destroyMap = () => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+      markerRef.current = null;
+      setMapReady(false);
+    }
+  };
 
   const initMap = () => {
     if (!document.getElementById('leaflet-css')) {
@@ -182,35 +198,50 @@ export default function AgentEditProperty() {
       s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
       s.onload = buildMap;
       document.body.appendChild(s);
-    } else buildMap();
+    } else {
+      buildMap();
+    }
   };
 
+  // ── KEY FIX: wrap in requestAnimationFrame so the mapRef div is in the DOM ─
   const buildMap = () => {
-    if (!mapRef.current || mapInstanceRef.current) return;
-    const lat = form?.latitude  ? parseFloat(form.latitude)  : 4.0511;
-    const lng = form?.longitude ? parseFloat(form.longitude) : 9.7679;
-    const map = window.L.map(mapRef.current, { zoomControl: false, scrollWheelZoom: true })
-      .setView([lat, lng], 14);
-    window.L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; OpenStreetMap', maxZoom: 20,
-    }).addTo(map);
-    window.L.control.zoom({ position: 'topright' }).addTo(map);
-    mapInstanceRef.current = map;
-    map.on('click', (e) => placePin(e.latlng.lat, e.latlng.lng));
-    if (form?.latitude && form?.longitude)
-      placePin(parseFloat(form.latitude), parseFloat(form.longitude), false);
-    setMapReady(true);
+    requestAnimationFrame(() => {
+      if (!mapRef.current || mapInstanceRef.current) return;
+
+      const lat = form?.latitude  ? parseFloat(form.latitude)  : 4.0511;
+      const lng = form?.longitude ? parseFloat(form.longitude) : 9.7679;
+
+      const map = window.L.map(mapRef.current, { zoomControl: false, scrollWheelZoom: true })
+        .setView([lat, lng], 14);
+
+      window.L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap', maxZoom: 20,
+      }).addTo(map);
+
+      window.L.control.zoom({ position: 'topright' }).addTo(map);
+      mapInstanceRef.current = map;
+
+      map.on('click', (e) => placePin(e.latlng.lat, e.latlng.lng));
+
+      if (form?.latitude && form?.longitude)
+        placePin(parseFloat(form.latitude), parseFloat(form.longitude), false);
+
+      setMapReady(true);
+    });
   };
 
   const placePin = (lat, lng, updateForm = true) => {
     if (!mapInstanceRef.current) return;
     if (markerRef.current) markerRef.current.remove();
+
     const icon = window.L.divIcon({
       html: `<div style="width:40px;height:40px;background:linear-gradient(135deg,#D97706,#B45309);border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:4px solid white;box-shadow:0 4px 12px rgba(217,119,6,.4);display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="white" style="transform:rotate(45deg)"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></div>`,
       className: '', iconSize: [40, 40], iconAnchor: [20, 40],
     });
+
     markerRef.current = window.L.marker([lat, lng], { icon }).addTo(mapInstanceRef.current);
     mapInstanceRef.current.setView([lat, lng], mapInstanceRef.current.getZoom());
+
     if (updateForm) {
       setForm(p => ({ ...p, latitude: lat.toFixed(6), longitude: lng.toFixed(6) }));
       markChanged('coordinates');
@@ -230,9 +261,14 @@ export default function AgentEditProperty() {
         const { suburb, neighbourhood, quarter, city, town, village, state, region } = d.address;
         const parts = [suburb||neighbourhood||quarter, city||town||village, state||region].filter(Boolean);
         setLocationName(parts.join(', ') || `${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}`);
-      } else setLocationName(`${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}`);
-    } catch { setLocationName(`${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}`); }
-    finally { setIsLoadingLoc(false); }
+      } else {
+        setLocationName(`${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}`);
+      }
+    } catch {
+      setLocationName(`${parseFloat(lat).toFixed(4)}, ${parseFloat(lng).toFixed(4)}`);
+    } finally {
+      setIsLoadingLoc(false);
+    }
   };
 
   const useMyLocation = () => {
@@ -309,8 +345,7 @@ export default function AgentEditProperty() {
     return !Object.keys(e).length;
   };
 
-  // ── Save via updateListing(id, formData) ──────────────────────────────────
-  // updateListing calls upload(`/agent/listings/${id}`, formData) → PUT multipart
+  // ── Save ──────────────────────────────────────────────────────────────────
   const persistUpdate = async () => {
     setApiError('');
     setIsSaving(true);
@@ -320,7 +355,6 @@ export default function AgentEditProperty() {
 
       await updateListing(listingId, fd);
 
-      // Mark new photos as existing after save
       setForm(p => ({
         ...p,
         photos: p.photos.map(ph => ph.isExisting ? ph : { ...ph, isExisting: true }),
@@ -339,7 +373,9 @@ export default function AgentEditProperty() {
     if (validate(step)) await persistUpdate();
   };
 
-  const nextStep = () => { if (validate(step)) { setStep(p => Math.min(p+1, 5)); window.scrollTo(0,0); } };
+  const nextStep = () => {
+    if (validate(step)) { setStep(p => Math.min(p+1, 5)); window.scrollTo(0,0); }
+  };
   const prevStep = () => { setStep(p => Math.max(p-1, 1)); window.scrollTo(0,0); };
 
   const handleSubmitUpdate = async () => {
@@ -350,23 +386,23 @@ export default function AgentEditProperty() {
 
   // ── Preview shape ──────────────────────────────────────────────────────────
   const previewListing = form ? {
-    id:          listingId,
-    title:       form.title       || 'Property Title',
-    price:       parseInt(form.price) || 0,
-    location:    `${form.city}, ${form.region}`,
-    bedrooms:    parseInt(form.bedrooms)  || 0,
-    bathrooms:   parseInt(form.bathrooms) || 0,
-    area:        parseInt(form.area)      || 0,
-    type:        form.listingType,
-    listingType: form.listingType === 'sale' ? 'For Sale' : 'For Rent',
-    image:       form.photos[0]?.preview || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=600',
-    images:      form.photos.map(p => p.preview),
-    lat:         parseFloat(form.latitude)  || 4.0511,
-    lng:         parseFloat(form.longitude) || 9.7679,
-    description: form.description,
+    id:           listingId,
+    title:        form.title       || 'Property Title',
+    price:        parseInt(form.price) || 0,
+    location:     `${form.city}, ${form.region}`,
+    bedrooms:     parseInt(form.bedrooms)  || 0,
+    bathrooms:    parseInt(form.bathrooms) || 0,
+    area:         parseInt(form.area)      || 0,
+    type:         form.listingType,
+    listingType:  form.listingType === 'sale' ? 'For Sale' : 'For Rent',
+    image:        form.photos[0]?.preview || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=600',
+    images:       form.photos.map(p => p.preview),
+    lat:          parseFloat(form.latitude)  || 4.0511,
+    lng:          parseFloat(form.longitude) || 9.7679,
+    description:  form.description,
     propertyType: form.propertyType,
-    yearBuilt:   form.yearBuilt,
-    parking:     form.amenities.includes('parking') ? 1 : 0,
+    yearBuilt:    form.yearBuilt,
+    parking:      form.amenities.includes('parking') ? 1 : 0,
   } : null;
 
   // ── Field class ────────────────────────────────────────────────────────────
@@ -506,7 +542,6 @@ export default function AgentEditProperty() {
                 placeholder="2020" className={fc('yearBuilt')} />
             </div>
             <div>
-              {/* Values match DB enum: unfurnished | semi-furnished | furnished */}
               <label className="block text-sm font-medium text-gray-700 mb-2">Furnished</label>
               <select value={form.furnished} onChange={e => set('furnished', e.target.value)} className={fc('furnished')}>
                 <option value="">Select option</option>
@@ -562,6 +597,7 @@ export default function AgentEditProperty() {
                 </div>
               </div>
               <div className="relative">
+                {/* mapRef div — must always be rendered when step===2 */}
                 <div ref={mapRef} className="w-full h-80 md:h-96" />
                 {form.latitude && form.longitude && (
                   <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur-sm rounded-lg p-4 shadow-lg border border-gray-200">
@@ -748,14 +784,14 @@ export default function AgentEditProperty() {
             <h3 className="text-lg font-bold text-gray-900 mb-4">Listing Summary</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
               {[
-                { label:'Title',       value: form.title || '—',                              field:'title'       },
-                { label:'Price',       value: form.price ? `${parseInt(form.price).toLocaleString()} FCFA` : '—', field:'price' },
-                { label:'Location',   value: `${form.city}, ${form.region}`,                  field:'city'        },
-                { label:'Type',       value: `${form.propertyType} · ${form.listingType === 'sale' ? 'For Sale' : 'For Rent'}`, field:'propertyType' },
-                { label:'Beds/Baths', value: `${form.bedrooms} BD · ${form.bathrooms} BA`,    field:'bedrooms'    },
-                { label:'Area',       value: `${form.area} m²`,                               field:'area'        },
-                { label:'Photos',     value: `${form.photos.length} (${form.photos.filter(p=>!p.isExisting).length} new)`, field:'photos' },
-                { label:'Amenities',  value: `${form.amenities.length} selected`,             field:'amenities'   },
+                { label:'Title',       value: form.title || '—',                                                   field:'title'       },
+                { label:'Price',       value: form.price ? `${parseInt(form.price).toLocaleString()} FCFA` : '—',  field:'price'       },
+                { label:'Location',    value: `${form.city}, ${form.region}`,                                      field:'city'        },
+                { label:'Type',        value: `${form.propertyType} · ${form.listingType === 'sale' ? 'For Sale' : 'For Rent'}`, field:'propertyType' },
+                { label:'Beds/Baths',  value: `${form.bedrooms} BD · ${form.bathrooms} BA`,                        field:'bedrooms'    },
+                { label:'Area',        value: `${form.area} m²`,                                                   field:'area'        },
+                { label:'Photos',      value: `${form.photos.length} (${form.photos.filter(p=>!p.isExisting).length} new)`, field:'photos' },
+                { label:'Amenities',   value: `${form.amenities.length} selected`,                                 field:'amenities'   },
               ].map(({label,value,field}) => (
                 <div key={field} className={`p-3 rounded-lg border ${
                   changedFields.has(field) ? 'border-amber-300 bg-amber-50' : 'border-gray-100 bg-gray-50'
@@ -801,15 +837,15 @@ export default function AgentEditProperty() {
                 Listing #{listingId} · {form?.title}
               </p>
             </div>
-            {/* Quick Save — always visible */}
+            {/* Quick Save */}
             <button onClick={handleSaveChanges}
               disabled={isSaving || changedFields.size === 0}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-sm transition-all ${
-                saveSuccess             ? 'bg-green-600 text-white' :
+                saveSuccess              ? 'bg-green-600 text-white' :
                 changedFields.size === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' :
-                                          'bg-amber-600 hover:bg-amber-700 text-white shadow-sm'
+                                           'bg-amber-600 hover:bg-amber-700 text-white shadow-sm'
               }`}>
-              {isSaving    ? <Loader2     className="w-4 h-4 animate-spin" /> :
+              {isSaving    ? <Loader2      className="w-4 h-4 animate-spin" /> :
                saveSuccess ? <CheckCircle2 className="w-4 h-4" /> :
                              <Save         className="w-4 h-4" />}
               {isSaving    ? 'Saving…' :
@@ -819,7 +855,7 @@ export default function AgentEditProperty() {
           </div>
         </div>
 
-        {/* API error */}
+        {/* API error banner */}
         {apiError && (
           <div className="mb-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
@@ -838,11 +874,11 @@ export default function AgentEditProperty() {
           </div>
         )}
 
-        {/* Steps — all clickable in edit mode */}
+        {/* Step indicator — all clickable in edit mode */}
         <div className="mb-6 md:mb-8 overflow-x-auto">
           <div className="flex items-center justify-between min-w-max md:min-w-0">
             {STEPS.map((s, i) => {
-              const Icon = s.icon;
+              const Icon    = s.icon;
               const active    = step === s.number;
               const completed = step > s.number;
               return (
@@ -912,7 +948,7 @@ export default function AgentEditProperty() {
         />
       )}
 
-      {/* Fullscreen map */}
+      {/* Fullscreen map overlay */}
       {isMapExpanded && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
           <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between">
