@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
 const PROPERTY_TYPES = [
   { value: 'apartment',  label: 'Apartment'  },
   { value: 'house',      label: 'House'      },
@@ -31,13 +30,13 @@ const NO_ROOMS_TYPES = ['land', 'commercial'];
 
 const AMENITIES_LIST = [
   { id: 'wifi',      label: 'WiFi',             icon: Wifi      },
-  { id: 'parking',   label: 'Parking',          icon: Car       },
-  { id: 'pool',      label: 'Swimming Pool',    icon: Droplet   },
-  { id: 'gym',       label: 'Gym',              icon: Building2 },
-  { id: 'ac',        label: 'Air Conditioning', icon: Wind      },
-  { id: 'security',  label: '24/7 Security',    icon: Shield    },
-  { id: 'generator', label: 'Generator',        icon: Zap       },
-  { id: 'cctv',      label: 'CCTV',             icon: Camera    },
+  { id: 'parking',   label: 'Parking',           icon: Car       },
+  { id: 'pool',      label: 'Swimming Pool',     icon: Droplet   },
+  { id: 'gym',       label: 'Gym',               icon: Building2 },
+  { id: 'ac',        label: 'Air Conditioning',  icon: Wind      },
+  { id: 'security',  label: '24/7 Security',     icon: Shield    },
+  { id: 'generator', label: 'Generator',         icon: Zap       },
+  { id: 'cctv',      label: 'CCTV',              icon: Camera    },
 ];
 
 const STEPS = [
@@ -103,13 +102,20 @@ const EMPTY_FORM = {
   furnished: '', amenities: [], photos: [],
 };
 
-// ─── Safe coordinate parser — returns null instead of NaN ────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 const safeFloat = (val) => {
   const n = parseFloat(val);
   return isNaN(n) || !isFinite(n) ? null : n;
 };
 
-// ─── Geocoding helpers ────────────────────────────────────────────────────────
+const formatNum = (val) => {
+  const raw = String(val).replace(/[\s,]/g, '');
+  if (!raw || isNaN(raw)) return '';
+  return parseInt(raw, 10).toLocaleString('fr-FR');
+};
+const unformat = (val) => String(val).replace(/[^0-9]/g, '');
+
+// ─── Geocoding ────────────────────────────────────────────────────────────────
 const googlePlaceSearch = async (query) => {
   const url = `https://google-maps-api-free.p.rapidapi.com/google-find-place-search?place=${encodeURIComponent(query)}`;
   const res = await fetch(url, {
@@ -167,33 +173,251 @@ const fetchPOIs = async (bounds, osmTag, osmValue) => {
   } catch { return []; }
 };
 
-const injectCSS = (href, id) => {
-  if (document.getElementById(id)) return;
-  const l = document.createElement('link');
-  l.id = id; l.rel = 'stylesheet'; l.href = href;
-  document.head.appendChild(l);
+const injectLeaflet = () => {
+  if (!document.getElementById('leaflet-css')) {
+    const l = document.createElement('link');
+    l.id = 'leaflet-css'; l.rel = 'stylesheet';
+    l.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(l);
+  }
+  return new Promise((resolve) => {
+    if (window.L) { resolve(); return; }
+    const existing = document.getElementById('leaflet-js');
+    if (existing) { existing.addEventListener('load', resolve); return; }
+    const s = document.createElement('script');
+    s.id = 'leaflet-js'; s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    s.onload = resolve;
+    document.body.appendChild(s);
+  });
 };
 
-const loadScript = (src, id, globalCheck) => new Promise((resolve, reject) => {
-  if (window[globalCheck]) { resolve(); return; }
-  const existing = document.getElementById(id);
-  if (existing) { existing.addEventListener('load', resolve); existing.addEventListener('error', reject); return; }
-  const s = document.createElement('script');
-  s.id = id; s.src = src; s.async = true;
-  s.onload = resolve; s.onerror = reject;
-  document.body.appendChild(s);
-});
+// ─── MapPanel — lives OUTSIDE AgentAddProperty so it never re-mounts ─────────
+// All map DOM lives here; parent communicates via stable refs + callbacks.
+function MapPanel({
+  mapRef,
+  mapReady,
+  hasPin, lat, lng,
+  isLoadingLoc, locationName,
+  mapSearch, setMapSearch,
+  mapSearchResults, mapSearching,
+  flyToSearchResult,
+  activeLayer, showLayerMenu, setShowLayerMenu,
+  activePOIs, poiLoading, togglePOI,
+  isMapExpanded, toggleMap,
+  useMyLocation,
+  mapInstanceRef,
+  showAddressPanel,
+  form,
+  height,
+}) {
+  return (
+    <div className="relative w-full" style={{ height }}>
+      {/* The actual Leaflet container — never conditionally rendered */}
+      <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const formatNum = (val) => {
-  const raw = String(val).replace(/[\s,]/g, '');
-  if (!raw || isNaN(raw)) return '';
-  return parseInt(raw, 10).toLocaleString('fr-FR');
-};
-const unformat = (val) => String(val).replace(/[^0-9]/g, '');
+      {!mapReady && (
+        <div className="absolute inset-0 bg-gray-50 flex flex-col items-center justify-center z-[2000]">
+          <MapPin className="w-12 h-12 text-amber-500 animate-bounce mb-3" />
+          <p className="text-gray-600 font-medium text-sm">Loading map…</p>
+        </div>
+      )}
 
-// ─────────────────────────────────────────────────────────────────────────────
+      {mapReady && (
+        <>
+          {/* Search bar */}
+          <div className="absolute top-3 left-3 z-[1000]" style={{ maxWidth: 310, width: 'calc(100% - 60px)' }}>
+            <div className="relative">
+              <div className="flex items-center bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+                <Search className="w-4 h-4 text-gray-400 ml-3 flex-shrink-0" />
+                <input
+                  type="text" value={mapSearch} onChange={e => setMapSearch(e.target.value)}
+                  placeholder="Search street, neighbourhood, city…"
+                  className="flex-1 px-3 py-2.5 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent"
+                />
+                {mapSearching
+                  ? <Loader2 className="w-4 h-4 text-amber-500 mr-3 flex-shrink-0 animate-spin" />
+                  : mapSearch && (
+                    <button className="mr-3 flex-shrink-0" onClick={() => { setMapSearch(''); }}>
+                      <X className="w-4 h-4 text-gray-400 hover:text-gray-700" />
+                    </button>
+                  )
+                }
+              </div>
+              {mapSearchResults.length > 0 && (
+                <div className="absolute top-full mt-1.5 left-0 right-0 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[1001]">
+                  <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Results</span>
+                    <span className="text-[10px] text-gray-400">{mapSearchResults.length} found</span>
+                  </div>
+                  {mapSearchResults.map((r, i) => (
+                    <button key={i} onClick={() => flyToSearchResult(r)}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-amber-50 transition-colors text-left border-b border-gray-50 last:border-0">
+                      <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                        <MapPin className="w-3.5 h-3.5 text-amber-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-gray-800 leading-tight truncate">{r.name}</div>
+                        {r.formatted_address && r.formatted_address !== r.name && (
+                          <div className="text-xs text-gray-400 mt-0.5 truncate">{r.formatted_address}</div>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
 
+          {/* Right controls */}
+          <div className="absolute top-3 right-3 flex flex-col gap-2 z-[1000]">
+            <button onClick={() => mapInstanceRef.current?.zoomIn()}
+              className="w-10 h-10 bg-white rounded-xl shadow-lg hover:shadow-xl hover:bg-gray-50 flex items-center justify-center transition-all border border-gray-200">
+              <ZoomIn className="w-4 h-4 text-gray-700" />
+            </button>
+            <button onClick={() => mapInstanceRef.current?.zoomOut()}
+              className="w-10 h-10 bg-white rounded-xl shadow-lg hover:shadow-xl hover:bg-gray-50 flex items-center justify-center transition-all border border-gray-200">
+              <ZoomOut className="w-4 h-4 text-gray-700" />
+            </button>
+            <button onClick={useMyLocation}
+              className="w-10 h-10 bg-amber-600 hover:bg-amber-700 rounded-xl shadow-lg flex items-center justify-center transition-all"
+              title="My location">
+              <Crosshair className="w-4 h-4 text-white" />
+            </button>
+            <div className="relative">
+              <button onClick={() => setShowLayerMenu(p => !p)}
+                className={`w-10 h-10 rounded-xl shadow-lg flex items-center justify-center transition-all border ${
+                  showLayerMenu ? 'bg-amber-600 border-amber-600' : 'bg-white hover:bg-gray-50 border-gray-200'
+                }`}>
+                <Layers className={`w-4 h-4 ${showLayerMenu ? 'text-white' : 'text-gray-700'}`} />
+              </button>
+              {showLayerMenu && (
+                <div className="absolute right-0 top-12 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[1002] min-w-[130px]">
+                  <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Map Style</span>
+                  </div>
+                  {Object.entries(TILE_LAYERS).map(([key, tile]) => {
+                    const Icon = tile.icon;
+                    return (
+                      <button key={key} onClick={() => { /* switchLayer handled in parent via prop */ }}
+                        data-layer={key}
+                        className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
+                          activeLayer === key ? 'bg-amber-50 text-amber-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'
+                        }`}>
+                        <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                        {tile.label}
+                        {activeLayer === key && <span className="ml-auto w-2 h-2 rounded-full bg-amber-500" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <button onClick={toggleMap}
+              className="w-10 h-10 bg-white rounded-xl shadow-lg hover:shadow-xl hover:bg-gray-50 flex items-center justify-center transition-all border border-gray-200">
+              {isMapExpanded ? <Minimize2 className="w-4 h-4 text-gray-700" /> : <Maximize2 className="w-4 h-4 text-gray-700" />}
+            </button>
+          </div>
+
+          {/* POI bar (fullscreen only) */}
+          {showAddressPanel && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-1.5 bg-white rounded-2xl shadow-lg border border-gray-100 px-2 py-1.5">
+              {POI_CATEGORIES.map(cat => {
+                const Icon      = cat.icon;
+                const isActive  = activePOIs.has(cat.id);
+                const isLoading = poiLoading.has(cat.id);
+                return (
+                  <button key={cat.id} onClick={() => togglePOI(cat)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                      isActive ? 'text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
+                    }`}
+                    style={isActive ? { background: cat.color } : {}}>
+                    {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Icon className="w-3.5 h-3.5" />}
+                    {cat.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Pinned badge */}
+          {hasPin && (
+            <div className="absolute bottom-8 left-3 z-[1000]">
+              <div className="flex items-center gap-2 bg-white rounded-xl shadow-lg border border-green-200 px-3 py-2 max-w-[280px]">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
+                <span className="text-xs font-semibold text-green-700 truncate">
+                  {isLoadingLoc ? 'Detecting address…' : locationName || `${lat.toFixed(4)}, ${lng.toFixed(4)}`}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Tap hint */}
+          {!hasPin && (
+            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none">
+              <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg border border-gray-100 px-4 py-2.5">
+                <p className="text-xs font-semibold text-gray-600 whitespace-nowrap">👆 Click the map to drop your pin</p>
+              </div>
+            </div>
+          )}
+
+          {/* Full address panel (fullscreen) */}
+          {showAddressPanel && hasPin && (
+            <div className="absolute bottom-6 right-4 w-72 bg-white/96 backdrop-blur-sm rounded-2xl p-4 shadow-2xl border border-gray-200 z-[1000]">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
+                  <MapPin className="w-4 h-4 text-green-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-gray-900 text-sm mb-1">Pinned Location</p>
+                  {isLoadingLoc
+                    ? <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <div className="w-3 h-3 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                        Fetching address…
+                      </div>
+                    : <p className="text-xs text-gray-600 leading-relaxed break-words">{locationName}</p>
+                  }
+                  <p className="text-[11px] text-gray-400 font-mono mt-1">
+                    {lat.toFixed(6)}, {lng.toFixed(6)}
+                  </p>
+                  <div className="mt-2.5 pt-2 border-t border-gray-100 grid grid-cols-2 gap-1.5">
+                    {[
+                      { label: 'Address',  value: form.address      },
+                      { label: 'District', value: form.neighbourhood },
+                      { label: 'City',     value: form.city          },
+                      { label: 'Region',   value: form.region        },
+                    ].filter(f => f.value).map(f => (
+                      <div key={f.label} className="bg-gray-50 rounded-lg px-2 py-1.5">
+                        <p className="text-[9px] text-gray-400 uppercase font-bold tracking-wider">{f.label}</p>
+                        <p className="text-xs font-semibold text-gray-700 truncate">{f.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <style>{`
+        .leaflet-control-scale-line {
+          border:2px solid #374151 !important; border-top:none !important;
+          background:rgba(255,255,255,0.88) !important;
+          font-size:11px !important; font-weight:600 !important; color:#374151 !important;
+          border-radius:0 0 5px 5px !important; padding:1px 6px !important;
+        }
+        .leaflet-control-attribution {
+          background:rgba(255,255,255,0.45) !important; border-radius:6px 0 0 0 !important;
+          font-size:8px !important; padding:1px 5px !important;
+          color:#aaa !important; opacity:0.55 !important; transition:opacity 0.2s;
+        }
+        .leaflet-control-attribution:hover { opacity:1 !important; background:rgba(255,255,255,0.95) !important; }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 export default function AgentAddProperty() {
   const navigate = useNavigate();
   const { user } = useUserAuth();
@@ -207,13 +431,12 @@ export default function AgentAddProperty() {
   const [apiError, setApiError]           = useState('');
 
   // ── Map refs ──────────────────────────────────────────────────────────────
-  const mapRef         = useRef(null);   // single stable DOM node — closure ref, NOT passed as prop
+  const mapRef         = useRef(null);
   const mapInstanceRef = useRef(null);
   const markerRef      = useRef(null);
   const tileLayerRef   = useRef(null);
   const labelLayerRef  = useRef(null);
   const poiLayersRef   = useRef({});
-  const initCalledRef  = useRef(false);
 
   const [mapReady,      setMapReady]      = useState(false);
   const [activeLayer,   setActiveLayer]   = useState('clean');
@@ -226,26 +449,88 @@ export default function AgentAddProperty() {
   const [mapSearch,        setMapSearch]        = useState('');
   const [mapSearchResults, setMapSearchResults] = useState([]);
   const [mapSearching,     setMapSearching]     = useState(false);
-  const mapSearchTimer = useRef(null);
-  const skipNextSearch = useRef(false);
+  const mapSearchTimer  = useRef(null);
+  const skipNextSearch  = useRef(false);
 
   const noRooms = NO_ROOMS_TYPES.includes(form.propertyType);
+  const lat     = safeFloat(form.latitude);
+  const lng     = safeFloat(form.longitude);
+  const hasPin  = lat !== null && lng !== null;
 
-  // Derived safe coordinates — null if empty/NaN, never NaN
-  const lat    = safeFloat(form.latitude);
-  const lng    = safeFloat(form.longitude);
-  const hasPin = lat !== null && lng !== null;
-
+  // ── Clear rooms when type changes ─────────────────────────────────────────
   useEffect(() => {
     if (noRooms) setForm(p => ({ ...p, bedrooms: '', bathrooms: '', yearBuilt: '', furnished: '' }));
   }, [form.propertyType]);
 
+  // ── Map: init on step 2 arrive, destroy on leave ──────────────────────────
   useEffect(() => {
-    if (step === 2 && !initCalledRef.current) initMap();
+    if (step !== 2) return;
+
+    // Destroy any previous instance (back-navigation case)
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+      markerRef.current = null;
+      setMapReady(false);
+    }
+
+    // Load Leaflet CSS + JS then init — setTimeout gives React time to paint the div
+    injectLeaflet().then(() => {
+      setTimeout(() => {
+        if (!mapRef.current || mapInstanceRef.current) return;
+
+        const L   = window.L;
+        const map = L.map(mapRef.current, {
+          zoomControl:         false,
+          scrollWheelZoom:     true,
+          doubleClickZoom:     true,
+          preferCanvas:        true,
+          zoomSnap:            0.5,
+          wheelPxPerZoomLevel: 60,
+          tap:                 true,
+          tapTolerance:        15,
+        }).setView([4.0511, 9.7679], 13);
+
+        const def = TILE_LAYERS.clean;
+        tileLayerRef.current = L.tileLayer(def.url, {
+          attribution: def.attribution,
+          subdomains:  def.subdomains || 'abcd',
+          maxZoom:     def.maxZoom,
+          crossOrigin: true,
+        }).addTo(map);
+
+        L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
+
+        map.on('click', (e) => {
+          const cLat = e?.latlng?.lat;
+          const cLng = e?.latlng?.lng;
+          if (cLat == null || cLng == null || isNaN(cLat) || isNaN(cLng)) return;
+          placePin(cLat, cLng);
+        });
+        map.on('click', () => setShowLayerMenu(false));
+
+        mapInstanceRef.current = map;
+        setMapReady(true);
+        setTimeout(() => map.invalidateSize(), 120);
+      }, 50); // <-- the key: 50ms after React paints the div
+    }).catch(console.error);
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        markerRef.current = null;
+        setMapReady(false);
+      }
+    };
   }, [step]);
 
+  // ── Fullscreen toggle: invalidate size after transition ───────────────────
   useEffect(() => {
     document.body.style.overflow = isMapExpanded ? 'hidden' : '';
+    if (mapInstanceRef.current) {
+      setTimeout(() => mapInstanceRef.current?.invalidateSize(), 150);
+    }
     return () => { document.body.style.overflow = ''; };
   }, [isMapExpanded]);
 
@@ -259,61 +544,10 @@ export default function AgentAddProperty() {
       try {
         const results = await geocode(mapSearch);
         setMapSearchResults(results.slice(0, 6));
-      } catch {
-        setMapSearchResults([]);
-      }
+      } catch { setMapSearchResults([]); }
       setMapSearching(false);
     }, 350);
   }, [mapSearch]);
-
-  // ── Map init ──────────────────────────────────────────────────────────────
-  const initMap = () => {
-    injectCSS('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'leaflet-css');
-    const ready = window.L
-      ? Promise.resolve()
-      : loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', 'leaflet-js', 'L');
-    ready.then(() => buildMap()).catch(console.error);
-  };
-
-  const buildMap = () => {
-    if (!mapRef.current || mapInstanceRef.current || initCalledRef.current) return;
-    initCalledRef.current = true;
-    const L = window.L;
-
-    const map = L.map(mapRef.current, {
-      zoomControl:         false,
-      scrollWheelZoom:     true,
-      doubleClickZoom:     true,
-      preferCanvas:        true,
-      zoomSnap:            0.5,
-      wheelPxPerZoomLevel: 60,
-      tap:                 true,
-      tapTolerance:        15,
-    }).setView([4.0511, 9.7679], 13);   // hardcoded valid numbers — never NaN
-
-    const def = TILE_LAYERS.clean;
-    tileLayerRef.current = L.tileLayer(def.url, {
-      attribution: def.attribution,
-      subdomains:  def.subdomains || 'abcd',
-      maxZoom:     def.maxZoom,
-      crossOrigin: true,
-    }).addTo(map);
-
-    L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
-
-    // Guard click — reject if latlng is missing or NaN
-    map.on('click', (e) => {
-      const cLat = e?.latlng?.lat;
-      const cLng = e?.latlng?.lng;
-      if (cLat == null || cLng == null || isNaN(cLat) || isNaN(cLng)) return;
-      placePin(cLat, cLng);
-    });
-    map.on('click', () => setShowLayerMenu(false));
-
-    mapInstanceRef.current = map;
-    setMapReady(true);
-    setTimeout(() => map.invalidateSize(), 120);
-  };
 
   // ── Switch tile layer ─────────────────────────────────────────────────────
   const switchLayer = (key) => {
@@ -345,21 +579,18 @@ export default function AgentAddProperty() {
     if (!mapInstanceRef.current || !window.L) return;
     const L   = window.L;
     const map = mapInstanceRef.current;
-
     if (activePOIs.has(cat.id)) {
       if (poiLayersRef.current[cat.id]) { map.removeLayer(poiLayersRef.current[cat.id]); delete poiLayersRef.current[cat.id]; }
       setActivePOIs(prev => { const s = new Set(prev); s.delete(cat.id); return s; });
       return;
     }
-
     setPoiLoading(prev => new Set(prev).add(cat.id));
     const pois  = await fetchPOIs(map.getBounds(), cat.osmTag, cat.osmValue);
     const layer = L.layerGroup();
     pois.forEach((poi) => {
       const poiLat = safeFloat(poi.lat);
       const poiLon = safeFloat(poi.lon);
-      if (poiLat === null || poiLon === null) return;   // skip bad POI coords
-
+      if (poiLat === null || poiLon === null) return;
       const icon = L.divIcon({
         html: `<div style="width:26px;height:26px;background:${cat.color};border:2.5px solid white;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.22);font-size:12px;">${POI_EMOJI[cat.id] || '📍'}</div>`,
         className: '', iconSize: [26, 26], iconAnchor: [13, 13], popupAnchor: [0, -13],
@@ -381,12 +612,9 @@ export default function AgentAddProperty() {
   const placePin = (rawLat, rawLng) => {
     const pinLat = typeof rawLat === 'number' ? rawLat : parseFloat(rawLat);
     const pinLng = typeof rawLng === 'number' ? rawLng : parseFloat(rawLng);
-    // Hard guard — never let NaN or Infinity reach Leaflet
     if (!mapInstanceRef.current || !isFinite(pinLat) || !isFinite(pinLng)) return;
-
     const L = window.L;
     if (markerRef.current) markerRef.current.remove();
-
     const icon = L.divIcon({
       html: `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer;filter:drop-shadow(0 4px 14px rgba(217,119,6,0.5))">
         <div style="background:linear-gradient(135deg,#D97706,#B45309);color:white;
@@ -410,18 +638,15 @@ export default function AgentAddProperty() {
       </div>`,
       className: '', iconSize: [105, 65], iconAnchor: [52, 65],
     });
-
     markerRef.current = L.marker([pinLat, pinLng], { icon }).addTo(mapInstanceRef.current);
     mapInstanceRef.current.flyTo([pinLat, pinLng], Math.max(mapInstanceRef.current.getZoom(), 17), {
       animate: true, duration: 0.8,
     });
-
     setForm(p => ({ ...p, latitude: pinLat.toFixed(6), longitude: pinLng.toFixed(6) }));
     setErrors(p => ({ ...p, coordinates: '' }));
     reverseGeocode(pinLat, pinLng);
   };
 
-  // ── Select search result ──────────────────────────────────────────────────
   const flyToSearchResult = (result) => {
     if (!mapInstanceRef.current) return;
     const rLat = safeFloat(result.lat);
@@ -433,7 +658,6 @@ export default function AgentAddProperty() {
     placePin(rLat, rLng);
   };
 
-  // ── Reverse geocode ───────────────────────────────────────────────────────
   const reverseGeocode = async (pinLat, pinLng) => {
     if (!isFinite(pinLat) || !isFinite(pinLng)) return;
     setIsLoadingLoc(true);
@@ -446,25 +670,22 @@ export default function AgentAddProperty() {
       const d = await r.json();
       if (d?.address) {
         const a = d.address;
-        const {
-          house_number, road, street, pedestrian, footway, path,
+        const { house_number, road, street, pedestrian, footway, path,
           suburb, neighbourhood, quarter, residential,
-          city, town, village, municipality,
-          state, region, county,
-        } = a;
-        const streetName     = road || street || pedestrian || footway || path || '';
-        const streetAddress  = [house_number, streetName].filter(Boolean).join(' ').trim();
-        const hood           = suburb || neighbourhood || quarter || residential || '';
-        const resolvedCity   = city || town || village || municipality || '';
-        const resolvedRegion = state || region || county || '';
-        const locParts       = [hood, resolvedCity, resolvedRegion].filter(Boolean);
+          city, town, village, municipality, state, region, county } = a;
+        const streetName    = road || street || pedestrian || footway || path || '';
+        const streetAddress = [house_number, streetName].filter(Boolean).join(' ').trim();
+        const hood          = suburb || neighbourhood || quarter || residential || '';
+        const resolvedCity  = city || town || village || municipality || '';
+        const resolvedReg   = state || region || county || '';
+        const locParts      = [hood, resolvedCity, resolvedReg].filter(Boolean);
         setLocationName(locParts.join(', ') || `${pinLat.toFixed(4)}, ${pinLng.toFixed(4)}`);
         setForm(p => ({
           ...p,
-          address:       streetAddress || (hood ? `${hood}` : p.address),
+          address:       streetAddress || (hood ? hood : p.address),
           neighbourhood: hood          || p.neighbourhood,
           city:          resolvedCity  || p.city,
-          region:        resolvedRegion|| p.region,
+          region:        resolvedReg   || p.region,
         }));
       } else {
         setLocationName(`${pinLat.toFixed(4)}, ${pinLng.toFixed(4)}`);
@@ -490,7 +711,6 @@ export default function AgentAddProperty() {
 
   const toggleMap = () => {
     setIsMapExpanded(p => !p);
-    setTimeout(() => mapInstanceRef.current?.invalidateSize(), 150);
   };
 
   // ── Form helpers ───────────────────────────────────────────────────────────
@@ -616,7 +836,7 @@ export default function AgentAddProperty() {
     }
   };
 
-  // ── Preview — lat/lng always safe numbers, never NaN ──────────────────────
+  // ── Preview ────────────────────────────────────────────────────────────────
   const previewListing = {
     id: 'preview', title: form.title || 'Property Title',
     price: parseInt(form.price) || 0,
@@ -631,7 +851,7 @@ export default function AgentAddProperty() {
     property_type:    form.propertyType,
     image:  form.photos[0]?.preview || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=600',
     images: form.photos.map(p => p.preview),
-    lat: lat ?? 4.0511,   // safeFloat returns null — null ?? fallback never produces NaN
+    lat: lat ?? 4.0511,
     lng: lng ?? 9.7679,
     description: form.description,
     parking:   form.amenities.includes('parking')   ? 1 : 0,
@@ -644,213 +864,20 @@ export default function AgentAddProperty() {
       errors[field] ? 'border-red-400 bg-red-50' : 'border-gray-200',
     ].filter(Boolean).join(' ');
 
-  // ── Map UI — closure ref, no containerRef prop ────────────────────────────
-  const MapUI = ({ height = '420px', showAddressPanel = false }) => (
-    <div className="relative w-full" style={{ height }}>
-      <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
-
-      {!mapReady && (
-        <div className="absolute inset-0 bg-gray-50 flex flex-col items-center justify-center z-[2000]">
-          <MapPin className="w-12 h-12 text-amber-500 animate-bounce mb-3" />
-          <p className="text-gray-600 font-medium text-sm">Loading map…</p>
-        </div>
-      )}
-
-      {mapReady && (<>
-        {/* Search bar */}
-        <div className="absolute top-3 left-3 z-[1000]" style={{ maxWidth: 310, width: 'calc(100% - 60px)' }}>
-          <div className="relative">
-            <div className="flex items-center bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-              <Search className="w-4 h-4 text-gray-400 ml-3 flex-shrink-0" />
-              <input
-                type="text" value={mapSearch} onChange={e => setMapSearch(e.target.value)}
-                placeholder="Search street, neighbourhood, city…"
-                className="flex-1 px-3 py-2.5 text-sm text-gray-700 placeholder-gray-400 outline-none bg-transparent"
-              />
-              {mapSearching
-                ? <Loader2 className="w-4 h-4 text-amber-500 mr-3 flex-shrink-0 animate-spin" />
-                : mapSearch && (
-                  <button className="mr-3 flex-shrink-0" onClick={() => { setMapSearch(''); setMapSearchResults([]); }}>
-                    <X className="w-4 h-4 text-gray-400 hover:text-gray-700" />
-                  </button>
-                )
-              }
-            </div>
-            {mapSearchResults.length > 0 && (
-              <div className="absolute top-full mt-1.5 left-0 right-0 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[1001]">
-                <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Results</span>
-                  <span className="text-[10px] text-gray-400">{mapSearchResults.length} found</span>
-                </div>
-                {mapSearchResults.map((r, i) => (
-                  <button key={i} onClick={() => flyToSearchResult(r)}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-amber-50 transition-colors text-left border-b border-gray-50 last:border-0">
-                    <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-                      <MapPin className="w-3.5 h-3.5 text-amber-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-gray-800 leading-tight truncate">{r.name}</div>
-                      {r.formatted_address && r.formatted_address !== r.name && (
-                        <div className="text-xs text-gray-400 mt-0.5 truncate">{r.formatted_address}</div>
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right controls */}
-        <div className="absolute top-3 right-3 flex flex-col gap-2 z-[1000]">
-          <button onClick={() => mapInstanceRef.current?.zoomIn()}
-            className="w-10 h-10 bg-white rounded-xl shadow-lg hover:shadow-xl hover:bg-gray-50 flex items-center justify-center transition-all border border-gray-200">
-            <ZoomIn className="w-4 h-4 text-gray-700" />
-          </button>
-          <button onClick={() => mapInstanceRef.current?.zoomOut()}
-            className="w-10 h-10 bg-white rounded-xl shadow-lg hover:shadow-xl hover:bg-gray-50 flex items-center justify-center transition-all border border-gray-200">
-            <ZoomOut className="w-4 h-4 text-gray-700" />
-          </button>
-          <button onClick={useMyLocation}
-            className="w-10 h-10 bg-amber-600 hover:bg-amber-700 rounded-xl shadow-lg flex items-center justify-center transition-all"
-            title="My location">
-            <Crosshair className="w-4 h-4 text-white" />
-          </button>
-          <div className="relative">
-            <button onClick={() => setShowLayerMenu(p => !p)}
-              className={`w-10 h-10 rounded-xl shadow-lg flex items-center justify-center transition-all border ${
-                showLayerMenu ? 'bg-amber-600 border-amber-600' : 'bg-white hover:bg-gray-50 border-gray-200'
-              }`}>
-              <Layers className={`w-4 h-4 ${showLayerMenu ? 'text-white' : 'text-gray-700'}`} />
-            </button>
-            {showLayerMenu && (
-              <div className="absolute right-0 top-12 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[1002] min-w-[130px]">
-                <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Map Style</span>
-                </div>
-                {Object.entries(TILE_LAYERS).map(([key, tile]) => {
-                  const Icon = tile.icon;
-                  return (
-                    <button key={key} onClick={() => switchLayer(key)}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
-                        activeLayer === key ? 'bg-amber-50 text-amber-700 font-semibold' : 'hover:bg-gray-50 text-gray-700'
-                      }`}>
-                      <Icon className="w-3.5 h-3.5 flex-shrink-0" />
-                      {tile.label}
-                      {activeLayer === key && <span className="ml-auto w-2 h-2 rounded-full bg-amber-500" />}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          <button onClick={toggleMap}
-            className="w-10 h-10 bg-white rounded-xl shadow-lg hover:shadow-xl hover:bg-gray-50 flex items-center justify-center transition-all border border-gray-200">
-            {isMapExpanded
-              ? <Minimize2 className="w-4 h-4 text-gray-700" />
-              : <Maximize2 className="w-4 h-4 text-gray-700" />}
-          </button>
-        </div>
-
-        {/* POI bar (fullscreen only) */}
-        {showAddressPanel && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-1.5 bg-white rounded-2xl shadow-lg border border-gray-100 px-2 py-1.5">
-            {POI_CATEGORIES.map(cat => {
-              const Icon      = cat.icon;
-              const isActive  = activePOIs.has(cat.id);
-              const isLoading = poiLoading.has(cat.id);
-              return (
-                <button key={cat.id} onClick={() => togglePOI(cat)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                    isActive ? 'text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                  style={isActive ? { background: cat.color } : {}}>
-                  {isLoading
-                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    : <Icon className="w-3.5 h-3.5" />
-                  }
-                  {cat.label}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Pinned badge */}
-        {hasPin && (
-          <div className="absolute bottom-8 left-3 z-[1000]">
-            <div className="flex items-center gap-2 bg-white rounded-xl shadow-lg border border-green-200 px-3 py-2 max-w-[280px]">
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
-              <span className="text-xs font-semibold text-green-700 truncate">
-                {isLoadingLoc ? 'Detecting address…' : locationName || `${lat.toFixed(4)}, ${lng.toFixed(4)}`}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Tap hint */}
-        {!hasPin && (
-          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[1000] pointer-events-none">
-            <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg border border-gray-100 px-4 py-2.5">
-              <p className="text-xs font-semibold text-gray-600 whitespace-nowrap">👆 Click the map to drop your pin</p>
-            </div>
-          </div>
-        )}
-
-        {/* Full address panel (fullscreen) */}
-        {showAddressPanel && hasPin && (
-          <div className="absolute bottom-6 right-4 w-72 bg-white/96 backdrop-blur-sm rounded-2xl p-4 shadow-2xl border border-gray-200 z-[1000]">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
-                <MapPin className="w-4 h-4 text-green-600" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-gray-900 text-sm mb-1">Pinned Location</p>
-                {isLoadingLoc
-                  ? <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <div className="w-3 h-3 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
-                      Fetching address…
-                    </div>
-                  : <p className="text-xs text-gray-600 leading-relaxed break-words">{locationName}</p>
-                }
-                <p className="text-[11px] text-gray-400 font-mono mt-1">
-                  {lat.toFixed(6)}, {lng.toFixed(6)}
-                </p>
-                <div className="mt-2.5 pt-2 border-t border-gray-100 grid grid-cols-2 gap-1.5">
-                  {[
-                    { label: 'Address',  value: form.address       },
-                    { label: 'District', value: form.neighbourhood  },
-                    { label: 'City',     value: form.city           },
-                    { label: 'Region',   value: form.region         },
-                  ].filter(f => f.value).map(f => (
-                    <div key={f.label} className="bg-gray-50 rounded-lg px-2 py-1.5">
-                      <p className="text-[9px] text-gray-400 uppercase font-bold tracking-wider">{f.label}</p>
-                      <p className="text-xs font-semibold text-gray-700 truncate">{f.value}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </>)}
-
-      <style>{`
-        .leaflet-control-scale-line {
-          border:2px solid #374151 !important; border-top:none !important;
-          background:rgba(255,255,255,0.88) !important;
-          font-size:11px !important; font-weight:600 !important; color:#374151 !important;
-          border-radius:0 0 5px 5px !important; padding:1px 6px !important;
-        }
-        .leaflet-control-attribution {
-          background:rgba(255,255,255,0.45) !important; border-radius:6px 0 0 0 !important;
-          font-size:8px !important; padding:1px 5px !important;
-          color:#aaa !important; opacity:0.55 !important; transition:opacity 0.2s;
-        }
-        .leaflet-control-attribution:hover { opacity:1 !important; background:rgba(255,255,255,0.95) !important; }
-      `}</style>
-    </div>
-  );
+  // ── Shared MapPanel props ──────────────────────────────────────────────────
+  const mapPanelProps = {
+    mapRef, mapReady, hasPin, lat, lng,
+    isLoadingLoc, locationName,
+    mapSearch, setMapSearch,
+    mapSearchResults, mapSearching,
+    flyToSearchResult,
+    activeLayer, showLayerMenu, setShowLayerMenu: (v) => { setShowLayerMenu(v); },
+    activePOIs, poiLoading, togglePOI,
+    isMapExpanded, toggleMap,
+    useMyLocation,
+    mapInstanceRef,
+    form,
+  };
 
   // ── Step renderer ──────────────────────────────────────────────────────────
   const renderStep = () => {
@@ -913,53 +940,55 @@ export default function AgentAddProperty() {
             </div>
             {errors.price && <p className="text-red-500 text-xs mt-1">{errors.price}</p>}
           </div>
-          {!noRooms && (<>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Bedrooms</label>
-                <div className="relative">
-                  <Bed className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <input type="number" min="0" max="20" value={form.bedrooms}
-                    onChange={e => set('bedrooms', e.target.value)} placeholder="0" className={fc('bedrooms', 'pl-10')} />
+          {!noRooms && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Bedrooms</label>
+                  <div className="relative">
+                    <Bed className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input type="number" min="0" max="20" value={form.bedrooms}
+                      onChange={e => set('bedrooms', e.target.value)} placeholder="0" className={fc('bedrooms', 'pl-10')} />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Bathrooms</label>
+                  <div className="relative">
+                    <Bath className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input type="number" min="0" max="20" value={form.bathrooms}
+                      onChange={e => set('bathrooms', e.target.value)} placeholder="0" className={fc('bathrooms', 'pl-10')} />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Area (m²)</label>
+                  <div className="relative">
+                    <Ruler className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input type="text" inputMode="numeric"
+                      value={form.area ? formatNum(form.area) : ''}
+                      onChange={setNumeric('area')} placeholder="120" className={fc('area', 'pl-10 pr-9')} />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">m²</span>
+                  </div>
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Bathrooms</label>
-                <div className="relative">
-                  <Bath className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <input type="number" min="0" max="20" value={form.bathrooms}
-                    onChange={e => set('bathrooms', e.target.value)} placeholder="0" className={fc('bathrooms', 'pl-10')} />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Year Built</label>
+                  <input type="number" min="1900" max={new Date().getFullYear()}
+                    value={form.yearBuilt} onChange={e => set('yearBuilt', e.target.value)}
+                    placeholder="e.g. 2018" className={fc('yearBuilt')} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Furnished</label>
+                  <select value={form.furnished} onChange={e => set('furnished', e.target.value)} className={fc('furnished')}>
+                    <option value="">Select option</option>
+                    <option value="furnished">Furnished</option>
+                    <option value="semi-furnished">Semi-furnished</option>
+                    <option value="unfurnished">Unfurnished</option>
+                  </select>
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Area (m²)</label>
-                <div className="relative">
-                  <Ruler className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <input type="text" inputMode="numeric"
-                    value={form.area ? formatNum(form.area) : ''}
-                    onChange={setNumeric('area')} placeholder="120" className={fc('area', 'pl-10 pr-9')} />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">m²</span>
-                </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Year Built</label>
-                <input type="number" min="1900" max={new Date().getFullYear()}
-                  value={form.yearBuilt} onChange={e => set('yearBuilt', e.target.value)}
-                  placeholder="e.g. 2018" className={fc('yearBuilt')} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Furnished</label>
-                <select value={form.furnished} onChange={e => set('furnished', e.target.value)} className={fc('furnished')}>
-                  <option value="">Select option</option>
-                  <option value="furnished">Furnished</option>
-                  <option value="semi-furnished">Semi-furnished</option>
-                  <option value="unfurnished">Unfurnished</option>
-                </select>
-              </div>
-            </div>
-          </>)}
+            </>
+          )}
           {noRooms && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -986,7 +1015,7 @@ export default function AgentAddProperty() {
           <div className={`relative rounded-2xl overflow-hidden border-2 transition-colors ${
             errors.coordinates ? 'border-red-300' : hasPin ? 'border-green-300' : 'border-gray-200'
           }`}>
-            <MapUI height="440px" showAddressPanel={false} />
+            <MapPanel {...mapPanelProps} height="440px" showAddressPanel={false} />
           </div>
           {errors.coordinates && (
             <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-700 text-sm">
@@ -1212,6 +1241,7 @@ export default function AgentAddProperty() {
           </div>
         )}
 
+        {/* Step indicator */}
         <div className="mb-8 overflow-x-auto pb-1">
           <div className="flex items-center min-w-max md:min-w-0">
             {STEPS.map((s, i) => {
@@ -1266,6 +1296,7 @@ export default function AgentAddProperty() {
         <PropertyDetails listing={previewListing} isOpen={showPreview} onClose={() => setShowPreview(false)} />
       )}
 
+      {/* Fullscreen map overlay */}
       {isMapExpanded && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
           <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between flex-shrink-0">
@@ -1284,7 +1315,7 @@ export default function AgentAddProperty() {
             </button>
           </div>
           <div className="flex-1 relative overflow-hidden">
-            <MapUI height="100%" showAddressPanel={true} />
+            <MapPanel {...mapPanelProps} height="100%" showAddressPanel={true} />
           </div>
         </div>
       )}
