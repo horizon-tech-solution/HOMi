@@ -234,7 +234,7 @@ const Home = () => {
             {/* Search Card */}
             <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
               <div className="flex border-b border-gray-100">
-                {[{ id:'rent', label:'🏠  Rent' },{ id:'buy', label:'🔑  Buy' },{ id:'sell', label:'💰  Sell' }].map(t => (
+                {[{ id:'rent', label:'  Rent' },{ id:'buy', label:' Buy' },{ id:'sell', label:'  Sell' }].map(t => (
                   <button key={t.id} onClick={() => setSearchTab(t.id)}
                     className={`flex-1 py-3.5 text-sm font-bold transition-all ${searchTab === t.id ? 'bg-amber-600 text-white' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-50'}`}>
                     {t.label}
